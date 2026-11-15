@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bookmark, Compass, Home, Plus, UserRound } from "lucide-react";
+import { Bookmark, Compass, Download, Home, Plus, UserRound } from "lucide-react";
+import { ANDROID_APK_URL } from "@/lib/site";
 import { cn } from "@/lib/utils";
 
 const items = [
@@ -38,7 +39,7 @@ export function MobileNav() {
                 href={item.href}
                 aria-label="Publicar"
                 aria-current={active ? "page" : undefined}
-                className="relative -mt-6 flex size-12 items-center justify-center rounded-full bg-accent text-[#0a0a0a] shadow-[0_10px_30px_rgba(255,77,28,0.3)] transition active:scale-95"
+                className="relative -mt-6 flex size-12 shrink-0 items-center justify-center rounded-full bg-accent text-[#0a0a0a] shadow-[0_10px_30px_rgba(255,77,28,0.3)] transition active:scale-95"
               >
                 <Icon className="size-5" strokeWidth={2} />
               </Link>
@@ -50,7 +51,7 @@ export function MobileNav() {
               href={item.href}
               aria-current={active ? "page" : undefined}
               className={cn(
-                "flex w-14 flex-col items-center gap-1 py-2 transition-colors",
+                "flex min-w-0 flex-1 flex-col items-center gap-1 py-2 transition-colors",
                 active ? "text-ink" : "text-muted",
               )}
             >
@@ -65,6 +66,17 @@ export function MobileNav() {
             </Link>
           );
         })}
+        <a
+          href={ANDROID_APK_URL}
+          target="_blank"
+          rel="noreferrer noopener"
+          aria-label="Baixar app Android (APK)"
+          className="flex min-w-0 flex-1 flex-col items-center gap-1 py-2 text-muted transition-colors hover:text-ink"
+        >
+          <Download className="size-[19px]" strokeWidth={1.6} />
+          <span className="text-[8.5px] font-medium tracking-[0.02em]">Baixar</span>
+          <span className="size-1 rounded-full bg-transparent" />
+        </a>
       </div>
     </nav>
   );
