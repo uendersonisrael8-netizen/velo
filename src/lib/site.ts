@@ -18,6 +18,21 @@ export const SITE_URL = normalizeSiteUrl(
   configuredSiteUrl || vercelProductionUrl || "http://localhost:3000",
 );
 
+/**
+ * Download direto do APK Android.
+ *
+ * A Release `apk-latest` é recriada pelo workflow `.github/workflows/build-apk.yml`
+ * a cada build, então esta URL permanece estável. Use
+ * `NEXT_PUBLIC_ANDROID_APK_URL` para apontar para outro build (por exemplo,
+ * uma release assinada de produção).
+ */
+const configuredApkUrl = process.env.NEXT_PUBLIC_ANDROID_APK_URL?.trim();
+
+export const ANDROID_APK_URL =
+  configuredApkUrl && /^https:\/\//i.test(configuredApkUrl)
+    ? configuredApkUrl
+    : "https://github.com/uendersonisrael8-netizen/velo/releases/latest/download/velo.apk";
+
 export const SITE_NAME = "velo.";
 export const SITE_TITLE = "velo. — rede social de vídeos curtos e fotografia";
 export const SITE_DESCRIPTION =

@@ -1,8 +1,9 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Download } from "lucide-react";
 import { Brand } from "@/components/brand";
 import { ConfigNotice } from "@/components/shell/config-notice";
+import { ANDROID_APK_URL } from "@/lib/site";
 
 export default function AuthLayout({ children }: { children: ReactNode }) {
   return (
@@ -94,8 +95,17 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
           </div>
         </div>
 
-        <footer className="flex flex-wrap items-center justify-between gap-2 px-4 pb-4 text-[8px] uppercase tracking-[0.12em] text-muted/50 sm:px-8 sm:pb-6">
+        <footer className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 pb-4 text-[8px] uppercase tracking-[0.12em] text-muted/50 sm:px-8 sm:pb-6">
           <span>© {new Date().getFullYear()} velo.</span>
+          <a
+            href={ANDROID_APK_URL}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="inline-flex items-center gap-1.5 transition hover:text-ink"
+          >
+            <Download className="size-3" strokeWidth={1.7} />
+            baixar app android
+          </a>
           <span>feito para olhar devagar</span>
         </footer>
       </main>

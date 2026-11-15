@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Search } from "lucide-react";
+import { Download, Search } from "lucide-react";
 import { Brand } from "@/components/brand";
 import { useApp } from "@/components/providers/app-provider";
 import { Avatar } from "@/components/ui/avatar";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
+import { ANDROID_APK_URL } from "@/lib/site";
 
 export function MobileHeader() {
   const pathname = usePathname();
@@ -25,6 +26,16 @@ export function MobileHeader() {
             <Search className="size-4" strokeWidth={1.7} />
           </Link>
         ) : null}
+        <a
+          href={ANDROID_APK_URL}
+          target="_blank"
+          rel="noreferrer noopener"
+          aria-label="Baixar app Android"
+          title="Baixar app Android"
+          className="flex size-9 items-center justify-center rounded-full border border-line text-muted transition hover:text-ink"
+        >
+          <Download className="size-4" strokeWidth={1.7} />
+        </a>
         <ThemeToggle />
         <Link href={user ? "/profile" : "/login"} aria-label={user ? "Seu perfil" : "Entrar"}>
           {user ? (

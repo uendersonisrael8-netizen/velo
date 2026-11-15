@@ -4,6 +4,12 @@
 
 O velo funciona **somente com Supabase**. Não existe modo demonstração, dados de exemplo, perfis fictícios nem fallback local. Sem configuração, o app abre em **modo prévia**: feed, explorar, perfis, login e cadastro ficam visíveis, mas as ações reais só funcionam depois que as variáveis forem preenchidas. Com configuração, visitantes navegam pelo feed e pelos perfis; login é exigido apenas para curtir, comentar, seguir, publicar ou abrir o próprio perfil e guardados.
 
+## Baixar o app Android
+
+[**Baixar o APK — download direto**](https://github.com/uendersonisrael8-netizen/velo/releases/latest/download/velo.apk) · [ver a release](https://github.com/uendersonisrael8-netizen/velo/releases/tag/apk-latest)
+
+O APK é compilado e publicado automaticamente pelo GitHub Actions sempre que o projeto Android muda. É um build **debug** para sideload: no celular, permita "instalar apps desconhecidos" para o navegador ou gerenciador de arquivos usado no download. O app abre a produção em `https://velo-iota-bice.vercel.app` dentro de um WebView do Capacitor.
+
 ---
 
 ## Stack
@@ -307,6 +313,8 @@ O projeto Android fica em `android/` e usa **Capacitor 8**. O WebView aponta par
 
 ### Compilar o APK
 
+O caminho mais simples é o workflow do GitHub Actions, que não exige Android SDK na sua máquina. Para compilar localmente:
+
 ```bash
 npm install
 npx cap sync android
@@ -326,6 +334,27 @@ npm run android:release
 
 O AAB de release sai em `android/app/build/outputs/bundle/release/app-release.aab`. **Nunca commite** o keystore nem o `keystore.properties`.
 
+### Build automático no GitHub Actions
+
+O workflow [`.github/workflows/build-apk.yml`](.github/workflows/build-apk.yml) roda em pushes para `main` que alterem `android/`, `capacitor.config.ts`, `package.json`, `public/` ou o próprio workflow, e também pelo botão **Run workflow** (`workflow_dispatch`).
+
+Ele:
+
+1. instala Node 22, JDK 21 e Android SDK 36;
+2. roda `npm ci` e `npx cap sync android`;
+3. compila com `./gradlew assembleDebug`;
+4. salva `velo.apk` como artifact `velo-apk` por 30 dias;
+5. recria a Release pública [`apk-latest`](https://github.com/uendersonisrael8-netizen/velo/releases/tag/apk-latest) com o asset `velo.apk`.
+
+O link de download é estável: `https://github.com/uendersonisrael8-netizen/velo/releases/latest/download/velo.apk`. No site, ele fica em `ANDROID_APK_URL` (`src/lib/site.ts`) e pode ser sobrescrito por `NEXT_PUBLIC_ANDROID_APK_URL`.
+
+Para disparar manualmente:
+
+```bash
+gh workflow run build-apk.yml
+gh run watch
+```
+
 ### Configuração
 
 - `capacitor.config.ts` define `appId app.velo.social`, `appName velo` e `webDir public`.
@@ -336,7 +365,7 @@ O AAB de release sai em `android/app/build/outputs/bundle/release/app-release.aa
 
 ### Limitações do APK
 
-- Sem JDK/Android SDK instalados, `npm run android:debug` não roda; o projeto está pronto, mas a compilação precisa ser feita em uma máquina com o SDK.
+- O APK da Release é **debug-signed** (sideload). Distribuição assinada exige uma keystore e segredos no CI. A assinatura de debug também pode mudar entre builds, então versões futuras podem exigir desinstalar a anterior antes de instalar por cima.
 - O APK usa a produção da Vercel. Para apontar para outro ambiente, defina `CAPACITOR_SERVER_URL` antes de `npx cap sync`.
 - A sessão fica nos cookies do WebView; backup e transferência entre aparelhos estão desativados de propósito.
 

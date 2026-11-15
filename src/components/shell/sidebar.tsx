@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   Bookmark,
   Compass,
+  Download,
   Home,
   LogIn,
   LogOut,
@@ -18,6 +19,7 @@ import { Brand } from "@/components/brand";
 import { useApp } from "@/components/providers/app-provider";
 import { Avatar } from "@/components/ui/avatar";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
+import { ANDROID_APK_URL } from "@/lib/site";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 
@@ -167,7 +169,17 @@ export function Sidebar() {
           </Link>
         )}
 
-        <p className="mt-5 text-[9px] leading-relaxed text-muted/70">
+        <a
+          href={ANDROID_APK_URL}
+          target="_blank"
+          rel="noreferrer noopener"
+          className="mt-5 flex items-center gap-2 rounded-[10px] px-1 py-1 text-[10px] font-medium text-muted transition hover:bg-surface hover:text-ink"
+        >
+          <Download className="size-3.5" strokeWidth={1.7} />
+          Baixar app Android
+        </a>
+
+        <p className="mt-3 text-[9px] leading-relaxed text-muted/70">
           {isSupabaseConfigured
             ? "conectado ao supabase · seus dados são protegidos por RLS"
             : "modo prévia · configure o supabase para entrar"}
