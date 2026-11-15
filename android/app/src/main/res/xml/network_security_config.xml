@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  O WebView do app só fala HTTPS. Nenhum domínio pode usar HTTP em texto claro,
+  nem mesmo em builds de desenvolvimento. As âncoras de confiança são as do
+  sistema; não há certificate pinning para não quebrar quando a Vercel ou o
+  Supabase renovarem os certificados.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">velo-iota-bice.vercel.app</domain>
+        <domain includeSubdomains="true">supabase.co</domain>
+    </domain-config>
+</network-security-config>

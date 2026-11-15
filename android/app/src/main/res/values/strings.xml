@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">velo</string>
+    <string name="title_activity_main">velo</string>
+    <string name="package_name">app.velo.social</string>
+    <string name="custom_url_scheme">app.velo.social</string>
+</resources>
