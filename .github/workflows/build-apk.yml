@@ -78,7 +78,7 @@ jobs:
           ls -lh velo.apk
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: velo-apk
           path: velo.apk
@@ -89,7 +89,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release delete apk-latest --yes --cleanup-tag || true
           cat > release-notes.md <<'EOF'
           APK de debug (sideload) gerado automaticamente a partir do commit ${{ github.sha }}.
 
@@ -100,10 +99,21 @@ jobs:
 
           Como a assinatura de debug muda entre builds, versões futuras podem exigir desinstalar a anterior antes de instalar por cima.
           EOF
-          gh release create apk-latest velo.apk \
-            --title "velo. APK — build ${{ github.run_number }}" \
-            --notes-file release-notes.md \
-            --latest
+
+          # Atualiza a release no lugar em vez de apagar/recriar: o link
+          # /releases/latest/download/velo.apk nunca fica indisponível.
+          if gh release view apk-latest >/dev/null 2>&1; then
+            gh release edit apk-latest \
+              --title "velo. APK — build ${{ github.run_number }}" \
+              --notes-file release-notes.md \
+              --latest
+            gh release upload apk-latest velo.apk --clobber
+          else
+            gh release create apk-latest velo.apk \
+              --title "velo. APK — build ${{ github.run_number }}" \
+              --notes-file release-notes.md \
+              --latest
+          fi
 
       - name: Summary
         run: |
