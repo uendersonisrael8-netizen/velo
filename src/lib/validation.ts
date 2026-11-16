@@ -90,6 +90,20 @@ export const commentSchema = z.object({
   ),
 });
 
+export const aiChatSchema = z.object({
+  message: textSchema(
+    1,
+    2000,
+    {
+      min: "Escreva uma mensagem.",
+      max: "Mensagens podem ter até 2000 caracteres.",
+    },
+    true,
+  ),
+});
+
+export type AiChatValues = z.infer<typeof aiChatSchema>;
+
 export const uploadSchema = z.object({
   caption: textSchema(
     0,

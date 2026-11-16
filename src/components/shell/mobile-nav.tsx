@@ -2,8 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bookmark, Compass, Download, Home, Plus, UserRound } from "lucide-react";
-import { ANDROID_APK_URL } from "@/lib/site";
+import { Bookmark, Compass, Home, Plus, Sparkles, UserRound } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const items = [
@@ -12,6 +11,7 @@ const items = [
   { href: "/upload", label: "Publicar", icon: Plus, featured: true },
   { href: "/saved", label: "Salvos", icon: Bookmark },
   { href: "/profile", label: "Perfil", icon: UserRound },
+  { href: "/chat", label: "velo ia", icon: Sparkles },
 ];
 
 function isActive(pathname: string, href: string) {
@@ -66,17 +66,6 @@ export function MobileNav() {
             </Link>
           );
         })}
-        <a
-          href={ANDROID_APK_URL}
-          target="_blank"
-          rel="noreferrer noopener"
-          aria-label="Baixar app Android (APK)"
-          className="flex min-w-0 flex-1 flex-col items-center gap-1 py-2 text-muted transition-colors hover:text-ink"
-        >
-          <Download className="size-[19px]" strokeWidth={1.6} />
-          <span className="text-[8.5px] font-medium tracking-[0.02em]">Baixar</span>
-          <span className="size-1 rounded-full bg-transparent" />
-        </a>
       </div>
     </nav>
   );

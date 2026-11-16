@@ -63,18 +63,22 @@ export function isTrustedOrigin(request: NextRequest) {
   return allowed.has(origin);
 }
 
-export async function readJsonBody(request: NextRequest): Promise<unknown> {
+export async function readJsonBody(
+  request: NextRequest,
+  options: { maxBytes?: number } = {},
+): Promise<unknown> {
+  const maxBytes = options.maxBytes ?? MAX_BODY_BYTES;
   const contentType = request.headers.get("content-type") ?? "";
   if (!contentType.toLowerCase().includes("application/json")) {
     throw new Error("Envie os dados como JSON.");
   }
 
   const declaredLength = Number(request.headers.get("content-length") ?? "0");
-  if (declaredLength > MAX_BODY_BYTES) {
+  if (declaredLength > maxBytes) {
     throw new Error("Requisição muito grande.");
   }
 
-  const text = await readLimitedText(request);
+  const text = await readLimitedText(request, maxBytes);
   if (!text) throw new Error("Requisição vazia.");
 
   try {
@@ -89,7 +93,7 @@ export async function readJsonBody(request: NextRequest): Promise<unknown> {
  * `Content-Length` permitiria um cliente omitir o header e enviar um corpo
  * enorme; aqui o limite vale para o número real de bytes recebidos.
  */
-async function readLimitedText(request: NextRequest) {
+async function readLimitedText(request: NextRequest, maxBytes: number) {
   const body = request.body;
   if (!body) return "";
 
@@ -102,7 +106,7 @@ async function readLimitedText(request: NextRequest) {
       const { done, value } = await reader.read();
       if (done) break;
       total += value.byteLength;
-      if (total > MAX_BODY_BYTES) {
+      if (total > maxBytes) {
         await reader.cancel().catch(() => undefined);
         throw new Error("Requisição muito grande.");
       }

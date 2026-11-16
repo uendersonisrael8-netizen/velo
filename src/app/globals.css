@@ -268,6 +268,18 @@ textarea::placeholder {
   background: var(--line);
 }
 
+/* A tela da velo ia ocupa exatamente a área entre o header mobile e a barra
+   inferior. No desktop, o AppShell não tem essas barras e a altura é total. */
+.chat-shell {
+  height: calc(100dvh - 62px - 80px - env(safe-area-inset-bottom));
+}
+
+@media (min-width: 768px) {
+  .chat-shell {
+    height: 100dvh;
+  }
+}
+
 .text-balance {
   text-wrap: balance;
 }
@@ -323,6 +335,18 @@ textarea::placeholder {
 
 .eq-bar:nth-child(4) {
   animation-delay: 260ms;
+}
+
+.typing-dot {
+  animation: typing-bounce 1.1s ease-in-out infinite;
+}
+
+.typing-dot:nth-child(2) {
+  animation-delay: 150ms;
+}
+
+.typing-dot:nth-child(3) {
+  animation-delay: 300ms;
 }
 
 .skeleton {
@@ -453,6 +477,19 @@ textarea::placeholder {
   }
   100% {
     transform: scaleY(1);
+  }
+}
+
+@keyframes typing-bounce {
+  0%,
+  60%,
+  100% {
+    opacity: 0.4;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-4px);
   }
 }
 

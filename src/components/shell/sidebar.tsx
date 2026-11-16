@@ -10,6 +10,7 @@ import {
   LogIn,
   LogOut,
   Plus,
+  Sparkles,
   UserRound,
   Volume2,
   VolumeX,
@@ -26,6 +27,7 @@ import { cn } from "@/lib/utils";
 const navItems = [
   { href: "/", label: "Para você", icon: Home },
   { href: "/explore", label: "Explorar", icon: Compass },
+  { href: "/chat", label: "velo ia", icon: Sparkles },
   { href: "/upload", label: "Publicar", icon: Plus },
   { href: "/saved", label: "Guardados", icon: Bookmark },
   { href: "/profile", label: "Perfil", icon: UserRound },

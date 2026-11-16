@@ -64,6 +64,16 @@ keystore.properties
 # capacitor: os assets copiados e os configs gerados são ignorados por
 # android/.gitignore. Rode `npx cap sync android` antes de compilar.
 
+# velo ia (Python / FastAPI)
+/ai/.venv/
+/ai/__pycache__/
+/ai/**/__pycache__/
+/ai/velo-ia-lora/
+/ai/outputs/
+/ai/*.db
+/ai/*.db-*
+/ai/.env
+
 # editores e sistema
 .idea/
 .vscode/*

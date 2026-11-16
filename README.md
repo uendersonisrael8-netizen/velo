@@ -19,6 +19,7 @@ O APK é compilado e publicado automaticamente pelo GitHub Actions sempre que o 
 | App | Next.js 16 (App Router), React 19, TypeScript |
 | Estilo | Tailwind CSS 4, design tokens próprios |
 | Dados | Supabase (Auth, Postgres, Storage, Realtime) |
+| IA | FastAPI + transformers + peft (LoRA) + SQLite — pasta `ai/` |
 | Validação | Zod + validação de mídia no cliente |
 | Ícones | lucide-react |
 
@@ -165,9 +166,13 @@ O `src/proxy.ts` roda em todas as rotas, mas só exige sessão nas privadas (`/u
 | `/upload` | Publicação de `.mp4`, `.webm`, JPG, PNG ou WebP com legenda, tags, local e áudio |
 | `/profile` | Perfil editável, estatísticas, abas de publicações e guardados |
 | `/saved` | Coleção pessoal de posts salvos |
+| `/chat` | Conversa privada com a velo ia (histórico, “digitando…”, limpar conversa) |
+| `POST /api/ai/chat` | Proxy autenticado para o FastAPI: rate limit, Zod, identidade e segredo |
+| `GET/DELETE /api/ai/history` | Histórico e limpeza da conversa da velo ia |
+| `GET /api/app-version` | Versão mínima e link de atualização obrigatória |
 | `/u/[handle]` | Perfil público com follow |
 
-Rotas abertas: `/`, `/explore`, `/u/[handle]`, `/login`, `/signup` e `/auth/callback`. Rotas privadas: `/upload`, `/profile` e `/saved`; sem sessão, o `proxy` redireciona para `/login` no servidor. Nas rotas públicas, as ações restritas usam `ensureAuth()` no cliente para avisar e levar ao login.
+Rotas abertas: `/`, `/explore`, `/chat`, `/u/[handle]`, `/login`, `/signup` e `/auth/callback`. Rotas privadas: `/upload`, `/profile` e `/saved`; sem sessão, o `proxy` redireciona para `/login` no servidor. `/chat` é aberta, mas visitantes usam uma conversa anônima identificada por cookie HttpOnly. Nas rotas públicas, as ações restritas usam `ensureAuth()` no cliente para avisar e levar ao login.
 
 ---
 
@@ -206,6 +211,61 @@ Rotas abertas: `/`, `/explore`, `/u/[handle]`, `/login`, `/signup` e `/auth/call
 - Perfil com nome, handle, bio, link, local e avatar; edição com validação Zod.
 - Contadores de publicações, seguidores e seguindo.
 
+### velo ia (amiga virtual)
+
+A **velo ia** é a amiga virtual do velo. A tela `/chat` tem conversa privada em balões, campo de texto com envio por Enter, indicador **“digitando…”**, sugestões iniciais, limpeza de conversa e estado offline amigável.
+
+Como funciona:
+
+- O navegador/Android fala apenas com o **Next.js** (`/api/ai/chat` e `/api/ai/history`). O modelo e a `VELO_IA_API_KEY` ficam no servidor.
+- O Next.js aplica rate limit (**15 mensagens/10 min por pessoa** e **40/10 min por IP**), valida o JSON com Zod, limita o corpo a **32 KB** e repassa para o FastAPI.
+- A identidade da conversa é derivada no servidor: `user_<uuid>` para quem está autenticado no Supabase; cookie **HttpOnly** `velo_ia_session` para visitantes.
+- O FastAPI guarda até **200 mensagens** por conversa em SQLite e envia as **últimas 15** ao modelo junto com a nova pergunta. Assim a velo ia lembra do contexto recente.
+- O prompt proíbe diagnósticos e orienta ajuda profissional em crise. Há também uma camada determinística: mensagens com sinais de risco recebem uma resposta fixa com **CVV 188**, **SAMU 192** e **190**.
+- Sem `VELO_IA_API_URL`/`VELO_IA_API_KEY`, a tela abre em estado offline e o resto do velo continua funcionando.
+
+O serviço Python, o treino LoRA e o dataset ficam em [`ai/`](ai/README.md). Para desenvolver a interface sem GPU:
+
+```bash
+cp ai/.env.example ai/.env
+# em ai/.env: VELO_IA_MOCK=1
+python -m ai.serve_velo_ia
+```
+
+E no `.env.local`:
+
+```env
+VELO_IA_API_URL=http://127.0.0.1:8000
+VELO_IA_API_KEY=o-mesmo-segredo-de-ai/.env
+```
+
+O treinamento e o deploy do FastAPI estão detalhados em [`ai/README.md`](ai/README.md). A IA **não roda na Vercel**: ela precisa de um serviço Python separado (GPU recomendada) com HTTPS e disco persistente para o SQLite.
+
+### Atualização obrigatória
+
+O endpoint `GET /api/app-version` retorna:
+
+```json
+{
+  "versao_minima": "1.0.0",
+  "link_loja": "https://github.com/.../releases/latest/download/velo.apk",
+  "versao_web": "1.1.0",
+  "mensagem": "Atualize o velo para continuar."
+}
+```
+
+O componente `VersionGate` roda no layout global. No Android ele lê a versão nativa com `@capacitor/app` (`App.getInfo()`); no PWA usa `NEXT_PUBLIC_APP_VERSION`. Se a versão instalada for menor que `versao_minima`, um **modal fixo** cobre a interface, bloqueia o scroll, prende o foco e só oferece o botão para `link_loja`. Se o endpoint falhar, o app **não** bloqueia: uma oscilação de rede não pode prender todo mundo.
+
+Variáveis:
+
+- `APP_MIN_VERSION` — versão mínima aceita (padrão `1.0.0`).
+- `ANDROID_STORE_URL` — link HTTPS do botão; fallback para o APK.
+- `NEXT_PUBLIC_APP_VERSION` — versão do site/PWA; precisa ser definida **antes do build**.
+
+Para lançar uma atualização obrigatória: suba `versionCode`/`versionName` em `android/app/build.gradle`, publique o novo APK, faça o deploy do site e só então aumente `APP_MIN_VERSION` na Vercel. Quem estiver na versão antiga verá o modal.
+
+O APK **1.0.0** foi publicado antes do plugin `@capacitor/app` e não consegue reportar a própria versão. O `VersionGate` detecta a ausência do plugin e o trata como `1.0.0`, para que a atualização obrigatória também alcance esse build. A partir do **1.1.0**, a versão nativa é lida normalmente com `App.getInfo()`.
+
 ---
 
 ## Estrutura
@@ -214,11 +274,14 @@ Rotas abertas: `/`, `/explore`, `/u/[handle]`, `/login`, `/signup` e `/auth/call
 src/
   proxy.ts            # sessão e proteção de rotas no servidor
   app/
-    (app)/            # feed, explore, upload, profile, saved, u/[handle]
+    (app)/            # feed, explore, upload, profile, saved, chat, u/[handle]
     (auth)/           # login e signup
+    api/ai/           # proxy server-side para a velo ia (chat e histórico)
+    api/app-version/  # versão mínima e link de atualização
     api/auth/         # login e cadastro server-side (rate limit + Zod)
     auth/callback/    # troca do código PKCE (Google/e-mail) pela sessão
   components/
+    ai/               # tela de chat da velo ia
     auth/             # formulários de entrada e cadastro
     feed/             # player, comentários, stories, grade e lightbox
     explore/          # busca e descoberta
@@ -226,14 +289,19 @@ src/
     profile/          # perfil próprio, público e edição
     providers/        # AppProvider, tema, toasts
     shell/            # sidebar, navegação, aviso de prévia
+    system/           # VersionGate (atualização obrigatória)
     ui/               # Avatar, Dialog, EmptyState, etc.
   lib/
+    ai/               # cliente/identidade do FastAPI e constantes da velo ia
+    app-version.ts    # configuração server-side da versão mínima
+    version.ts        # comparação de versões (client-safe)
     media.ts          # validação, duração, poster, compressão
     preferences.ts    # volume e stories vistos (localStorage)
     sanitize.ts       # normalização de e-mail, texto e links externos
     validation.ts     # schemas Zod
     security/         # rate limit em memória
     supabase/         # client, server, session, queries e mappers
+ai/                   # FastAPI, treino LoRA, dataset e memória SQLite
 android/              # projeto Capacitor (WebView apontando para a Vercel)
 supabase/
   schema.sql          # banco, RLS, storage, realtime
@@ -245,8 +313,9 @@ Somente preferências de interface ficam no navegador:
 
 - `velo:audio:v1` — volume e mudo.
 - `velo:stories-seen:v1` — stories já vistos.
+- cookie HttpOnly `velo_ia_session` — identifica a conversa anônima com a velo ia.
 
-Todo o conteúdo (perfis, posts, comentários, likes, salvos, follows e stories) existe apenas no Supabase.
+Todo o conteúdo (perfis, posts, comentários, likes, salvos, follows e stories) existe apenas no Supabase. O histórico da velo ia fica no SQLite do serviço Python (`ai/velo_ia_memory.db`), nunca no navegador.
 
 ---
 
@@ -262,6 +331,7 @@ O que já está no projeto:
 - Limites de texto no banco e no cliente (caption, bio, tags, comentários).
 - **Login e cadastro server-side**: as rotas `POST /api/auth/login` e `POST /api/auth/signup` validam o JSON com Zod, recusam bodies acima de 8 KB, checam o header `Origin` contra o próprio site e respondem com `Cache-Control: private, no-store`.
 - **Rate limiting**: 30 tentativas por IP e 8 por conta a cada 10 minutos no login; 5 cadastros por IP e 3 por e-mail por hora. O contador é em memória por instância — em produção multi-instância, troque por Redis/Upstash ou uma tabela no Supabase. O Supabase Auth também aplica limites próprios.
+- **velo ia server-side**: o navegador nunca recebe `VELO_IA_API_KEY` nem a URL interna do FastAPI. As rotas `/api/ai/*` checam `Origin`, resolvem a identidade no Supabase (ou cookie HttpOnly anônimo), aplicam rate limit por pessoa/IP, validam a mensagem com Zod, limitam o corpo a 32 KB e só então chamam o serviço Python. Mensagens com sinais de risco recebem uma resposta fixa de acolhimento com CVV 188, SAMU 192 e 190.
 - **E-mail normalizado** (NFKC + trim + lowercase) no formulário, na API e no schema Zod. A senha é preservada exatamente como digitada, sem trim: espaços e maiúsculas fazem parte dela. O login não exige mais o mínimo de 8 caracteres do cadastro, então contas antigas com senhas curtas continuam entrando.
 - **Fallback de perfil**: se a sessão autenticou mas a leitura de `profiles` falhou, o login continua válido com um perfil mínimo vindo dos metadados do Auth, em vez de mostrar “senha incorreta”.
 - **Sanitização central** em `src/lib/sanitize.ts`: normaliza Unicode, remove caracteres de controle, zero-width e bidirecionais. Links de perfil só são renderizados se passarem por `safeExternalUrl` (apenas `http:`/`https:`).
@@ -382,7 +452,16 @@ npx vercel login
 npx vercel link --yes --project velo
 npx vercel env add NEXT_PUBLIC_SUPABASE_URL --environment production,preview,development --value "https://<project-ref>.supabase.co" --yes
 npx vercel env add NEXT_PUBLIC_SUPABASE_ANON_KEY --environment production,preview,development --value "<sua-chave-anon>" --yes
+npx vercel env add NEXT_PUBLIC_APP_VERSION --environment production,preview,development --value "1.1.0" --yes
 npx vercel deploy --prod --yes
+```
+
+Se a velo ia já estiver hospedada, adicione também (a URL precisa ser HTTPS em produção):
+
+```bash
+npx vercel env add VELO_IA_API_URL --environment production --value "https://sua-api-velo-ia.com" --yes
+npx vercel env add VELO_IA_API_KEY --environment production --value "<a-mesma-chave-de-ai/.env>" --yes
+npx vercel env add APP_MIN_VERSION --environment production --value "1.0.0" --yes
 ```
 
 O comando final imprime a **Production URL** (`https://<projeto>.vercel.app`). Variáveis `NEXT_PUBLIC_*` precisam existir **antes** do build; se mudar alguma, rode um novo `vercel deploy --prod`.
@@ -416,7 +495,9 @@ O `.gitignore` já ignora `.env.local`, `.next`, `node_modules`, `.vercel`, keys
 4. Em **Environment Variables**, adicione as duas variáveis em **Production**, **Preview** e **Development**:
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-5. Clique em **Deploy**.
+   - `NEXT_PUBLIC_APP_VERSION` (ex.: `1.1.0`)
+5. Se a velo ia estiver hospedada, adicione `VELO_IA_API_URL` e `VELO_IA_API_KEY` em **Production** (e `APP_MIN_VERSION` quando quiser exigir uma versão mínima).
+6. Clique em **Deploy**.
 
 > `NEXT_PUBLIC_*` é embutido no bundle durante o build. Se trocar a URL ou a chave, faça um novo deploy (não basta reiniciar a função).
 
@@ -460,7 +541,7 @@ O SEO é gerado pelo App Router, com metadados por página e rotas nativas:
 | `sitemap.xml` | `src/app/sitemap.ts` | Rotas estáticas + perfis públicos do Supabase, com revalidação de 1 h |
 | Dados estruturados | `layout.tsx` e `u/[handle]/page.tsx` | JSON-LD `WebSite` (com busca) e `ProfilePage` |
 
-Rotas privadas (`/upload`, `/profile`, `/saved`, `/login`, `/signup` e `/auth/*`) recebem `noindex, nofollow`. Feed, Explore e perfis públicos são indexáveis; o perfil usa nome, bio e avatar reais na description e no Open Graph.
+Rotas privadas (`/upload`, `/profile`, `/saved`, `/login`, `/signup` e `/auth/*`) e o chat (`/chat`) recebem `noindex, nofollow`. Feed, Explore e perfis públicos são indexáveis; o perfil usa nome, bio e avatar reais na description e no Open Graph.
 
 ### URL canônica
 
@@ -492,6 +573,9 @@ A indexação não é imediata: o Google precisa rastrear, processar e escolher 
 - O rate limit de login/cadastro é em memória e por instância. Em produção com várias funções, troque por Redis/Upstash ou uma tabela no Supabase.
 - A CSP mantém `'unsafe-inline'` para os scripts inline do Next.js. Migrar para nonce/hash é o próximo passo de endurecimento.
 - O APK precisa de JDK 21 e Android SDK 36 para compilar; o projeto está pronto, mas a compilação não roda só com Node.js.
+- A velo ia não roda na Vercel: o FastAPI com o modelo precisa de um serviço separado (GPU recomendada) e disco persistente para o SQLite. Sem essa API configurada, `/chat` mostra estado offline.
+- O dataset de exemplo tem apenas 10 diálogos. Ele valida o pipeline de treino, mas não é suficiente para uma amiga virtual de produção; amplie o dataset e faça avaliação humana antes de publicar.
+- O rate limit da velo ia também é em memória por instância do Next.js. Em produção com várias funções, use Redis/Upstash ou uma tabela no Supabase.
 - `npm audit` reporta 7 vulnerabilidades moderadas de desenvolvimento no `minimatch` usado pelo ESLint/TypeScript ESLint. Não há versão corrigida publicada e o pacote não vai para o bundle de produção.
 - A sessão do Supabase não é `HttpOnly` porque o browser client precisa lê-la para Realtime e RLS. A proteção equivalente é `Secure` + `SameSite=Lax` + CSP + tokens de curta duração.
 
