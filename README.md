@@ -149,7 +149,8 @@ O `src/proxy.ts` roda em todas as rotas, mas só exige sessão nas privadas (`/u
 - **Privilégios por coluna**: o cliente não consegue escrever contadores diretamente em `profiles` nem em `posts`.
 - **Storage**: bucket público `media`, limite de 50 MB, MIME types de vídeo/imagem e upload restrito à pasta `media/<user_id>/...`.
 - **Stories**: expiram em 24 h (`expires_at`) e a policy de leitura só devolve stories ativos.
-- **Realtime**: a tabela `comments` entra na publicação `supabase_realtime`.
+- **Direct**: conversas 1:1 com RLS por participante; o cliente só lê/escreve mensagens de conversas em que está, e as RPCs `start_direct_conversation`, `list_direct_conversations`, `direct_unread_total` e `mark_direct_read` concentram a lógica.
+- **Realtime**: as tabelas `comments` e `direct_messages` entram na publicação `supabase_realtime`.
 
 ---
 
@@ -166,13 +167,14 @@ O `src/proxy.ts` roda em todas as rotas, mas só exige sessão nas privadas (`/u
 | `/upload` | Publicação de `.mp4`, `.webm`, JPG, PNG ou WebP com legenda, tags, local e áudio |
 | `/profile` | Perfil editável, estatísticas, abas de publicações e guardados |
 | `/saved` | Coleção pessoal de posts salvos |
+| `/direct` | Conversas privadas, busca de pessoas, não lidas e posts compartilhados |
 | `/chat` | Conversa privada com a velo ia (histórico, “digitando…”, limpar conversa) |
 | `POST /api/ai/chat` | Proxy autenticado para o FastAPI: rate limit, Zod, identidade e segredo |
 | `GET/DELETE /api/ai/history` | Histórico e limpeza da conversa da velo ia |
 | `GET /api/app-version` | Versão mínima e link de atualização obrigatória |
 | `/u/[handle]` | Perfil público com follow |
 
-Rotas abertas: `/`, `/explore`, `/chat`, `/u/[handle]`, `/login`, `/signup` e `/auth/callback`. Rotas privadas: `/upload`, `/profile` e `/saved`; sem sessão, o `proxy` redireciona para `/login` no servidor. `/chat` é aberta, mas visitantes usam uma conversa anônima identificada por cookie HttpOnly. Nas rotas públicas, as ações restritas usam `ensureAuth()` no cliente para avisar e levar ao login.
+Rotas abertas: `/`, `/explore`, `/chat`, `/u/[handle]`, `/login`, `/signup` e `/auth/callback`. Rotas privadas: `/upload`, `/profile`, `/saved` e `/direct`; sem sessão, o `proxy` redireciona para `/login` no servidor. `/chat` é aberta, mas visitantes usam uma conversa anônima identificada por cookie HttpOnly. Nas rotas públicas, as ações restritas usam `ensureAuth()` no cliente para avisar e levar ao login.
 
 ---
 
@@ -198,6 +200,15 @@ Rotas abertas: `/`, `/explore`, `/chat`, `/u/[handle]`, `/login`, `/signup` e `/
 - Barra horizontal com anel de não vistos e estado de visto persistido.
 - Visualização fullscreen com progresso, navegação por toque/teclado, segurar para pausar e controle de volume.
 - Compositor para publicar uma foto ou vídeo de até 60 segundos.
+
+### Direct (mensagens)
+
+- Lista de conversas recentes, busca de pessoas por nome/@handle e thread 1:1.
+- Atualização em tempo real via Supabase Realtime, com polling de 6 s na conversa e 15 s na lista como fallback.
+- Badge de não lidas no menu lateral e na navegação mobile; abrir a conversa marca como lida.
+- Botão de compartilhar no feed e no lightbox envia a foto/vídeo com miniatura e legenda para uma conversa ou para uma pessoa nova.
+- No desktop, lista e conversa ficam lado a lado; no mobile, a thread ocupa a tela com botão de voltar. A rota aceita `?c=<id>` para abrir uma conversa direta.
+- O schema está em `supabase/migrations/20261116_direct_messages.sql` (também anexado ao `schema.sql`). Ele cria tabelas, RLS, RPCs e adiciona `direct_messages` ao Realtime. **Aplique a migração no SQL Editor antes de usar o Direct em produção.**
 
 ### Explorar
 - Busca sem acentos, por `#tag`, `@pessoa`, legenda ou local.
@@ -249,7 +260,7 @@ O endpoint `GET /api/app-version` retorna:
 {
   "versao_minima": "1.0.0",
   "link_loja": "https://github.com/.../releases/latest/download/velo.apk",
-  "versao_web": "1.1.0",
+  "versao_web": "1.2.0",
   "mensagem": "Atualize o velo para continuar."
 }
 ```
@@ -452,7 +463,7 @@ npx vercel login
 npx vercel link --yes --project velo
 npx vercel env add NEXT_PUBLIC_SUPABASE_URL --environment production,preview,development --value "https://<project-ref>.supabase.co" --yes
 npx vercel env add NEXT_PUBLIC_SUPABASE_ANON_KEY --environment production,preview,development --value "<sua-chave-anon>" --yes
-npx vercel env add NEXT_PUBLIC_APP_VERSION --environment production,preview,development --value "1.1.0" --yes
+npx vercel env add NEXT_PUBLIC_APP_VERSION --environment production,preview,development --value "1.2.0" --yes
 npx vercel deploy --prod --yes
 ```
 
@@ -461,7 +472,9 @@ Se a velo ia já estiver hospedada, adicione também (a URL precisa ser HTTPS em
 ```bash
 npx vercel env add VELO_IA_API_URL --environment production --value "https://sua-api-velo-ia.com" --yes
 npx vercel env add VELO_IA_API_KEY --environment production --value "<a-mesma-chave-de-ai/.env>" --yes
-npx vercel env add APP_MIN_VERSION --environment production --value "1.0.0" --yes
+npx vercel env add VELO_IA_HF_TOKEN --environment production --value "hf_..." --yes
+npx vercel env add VELO_IA_TIMEOUT_MS --environment production --value "55000" --yes
+npx vercel env add APP_MIN_VERSION --environment production --value "1.1.0" --yes
 ```
 
 O comando final imprime a **Production URL** (`https://<projeto>.vercel.app`). Variáveis `NEXT_PUBLIC_*` precisam existir **antes** do build; se mudar alguma, rode um novo `vercel deploy --prod`.
@@ -495,8 +508,8 @@ O `.gitignore` já ignora `.env.local`, `.next`, `node_modules`, `.vercel`, keys
 4. Em **Environment Variables**, adicione as duas variáveis em **Production**, **Preview** e **Development**:
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-   - `NEXT_PUBLIC_APP_VERSION` (ex.: `1.1.0`)
-5. Se a velo ia estiver hospedada, adicione `VELO_IA_API_URL` e `VELO_IA_API_KEY` em **Production** (e `APP_MIN_VERSION` quando quiser exigir uma versão mínima).
+   - `NEXT_PUBLIC_APP_VERSION` (ex.: `1.2.0`)
+5. Se a velo ia estiver hospedada, adicione `VELO_IA_API_URL`, `VELO_IA_API_KEY`, `VELO_IA_HF_TOKEN` e `VELO_IA_TIMEOUT_MS` em **Production** (e `APP_MIN_VERSION` quando quiser exigir uma versão mínima). O `VELO_IA_MOCK=1` existe só como fallback de demonstração e não deve ser usado em produção.
 6. Clique em **Deploy**.
 
 > `NEXT_PUBLIC_*` é embutido no bundle durante o build. Se trocar a URL ou a chave, faça um novo deploy (não basta reiniciar a função).
