@@ -171,7 +171,6 @@ O `src/proxy.ts` roda em todas as rotas, mas só exige sessão nas privadas (`/u
 | `/chat` | Conversa privada com a velo ia (histórico, “digitando…”, limpar conversa) |
 | `POST /api/ai/chat` | Proxy autenticado para o FastAPI: rate limit, Zod, identidade e segredo |
 | `GET/DELETE /api/ai/history` | Histórico e limpeza da conversa da velo ia |
-| `GET /api/app-version` | Versão mínima e link de atualização obrigatória |
 | `/u/[handle]` | Perfil público com follow |
 
 Rotas abertas: `/`, `/explore`, `/chat`, `/u/[handle]`, `/login`, `/signup` e `/auth/callback`. Rotas privadas: `/upload`, `/profile`, `/saved` e `/direct`; sem sessão, o `proxy` redireciona para `/login` no servidor. `/chat` é aberta, mas visitantes usam uma conversa anônima identificada por cookie HttpOnly. Nas rotas públicas, as ações restritas usam `ensureAuth()` no cliente para avisar e levar ao login.
@@ -252,30 +251,9 @@ VELO_IA_API_KEY=o-mesmo-segredo-de-ai/.env
 
 O treinamento e o deploy do FastAPI estão detalhados em [`ai/README.md`](ai/README.md). A IA **não roda na Vercel**: ela precisa de um serviço Python separado (GPU recomendada) com HTTPS e disco persistente para o SQLite.
 
-### Atualização obrigatória
+### Atualizações
 
-O endpoint `GET /api/app-version` retorna:
-
-```json
-{
-  "versao_minima": "1.0.0",
-  "link_loja": "https://github.com/.../releases/latest/download/velo.apk",
-  "versao_web": "1.2.0",
-  "mensagem": "Atualize o velo para continuar."
-}
-```
-
-O componente `VersionGate` roda no layout global. No Android ele lê a versão nativa com `@capacitor/app` (`App.getInfo()`); no PWA usa `NEXT_PUBLIC_APP_VERSION`. Se a versão instalada for menor que `versao_minima`, um **modal fixo** cobre a interface, bloqueia o scroll, prende o foco e só oferece o botão para `link_loja`. Se o endpoint falhar, o app **não** bloqueia: uma oscilação de rede não pode prender todo mundo.
-
-Variáveis:
-
-- `APP_MIN_VERSION` — versão mínima aceita (padrão `1.0.0`).
-- `ANDROID_STORE_URL` — link HTTPS do botão; fallback para o APK.
-- `NEXT_PUBLIC_APP_VERSION` — versão do site/PWA; precisa ser definida **antes do build**.
-
-Para lançar uma atualização obrigatória: suba `versionCode`/`versionName` em `android/app/build.gradle`, publique o novo APK, faça o deploy do site e só então aumente `APP_MIN_VERSION` na Vercel. Quem estiver na versão antiga verá o modal.
-
-O APK **1.0.0** foi publicado antes do plugin `@capacitor/app` e não consegue reportar a própria versão. O `VersionGate` detecta a ausência do plugin e o trata como `1.0.0`, para que a atualização obrigatória também alcance esse build. A partir do **1.1.0**, a versão nativa é lida normalmente com `App.getInfo()`.
+O site e o PWA são atualizados automaticamente a cada deploy na Vercel. O APK é um WebView que carrega a mesma versão web, então não existe modal ou aviso de atualização no app. Para mudanças nativas (novo plugin, permissão ou `versionCode`), publique um novo APK na release `apk-latest`.
 
 ---
 
@@ -288,7 +266,6 @@ src/
     (app)/            # feed, explore, upload, profile, saved, chat, u/[handle]
     (auth)/           # login e signup
     api/ai/           # proxy server-side para a velo ia (chat e histórico)
-    api/app-version/  # versão mínima e link de atualização
     api/auth/         # login e cadastro server-side (rate limit + Zod)
     auth/callback/    # troca do código PKCE (Google/e-mail) pela sessão
   components/
@@ -300,12 +277,9 @@ src/
     profile/          # perfil próprio, público e edição
     providers/        # AppProvider, tema, toasts
     shell/            # sidebar, navegação, aviso de prévia
-    system/           # VersionGate (atualização obrigatória)
     ui/               # Avatar, Dialog, EmptyState, etc.
   lib/
     ai/               # cliente/identidade do FastAPI e constantes da velo ia
-    app-version.ts    # configuração server-side da versão mínima
-    version.ts        # comparação de versões (client-safe)
     media.ts          # validação, duração, poster, compressão
     preferences.ts    # volume e stories vistos (localStorage)
     sanitize.ts       # normalização de e-mail, texto e links externos
@@ -463,7 +437,6 @@ npx vercel login
 npx vercel link --yes --project velo
 npx vercel env add NEXT_PUBLIC_SUPABASE_URL --environment production,preview,development --value "https://<project-ref>.supabase.co" --yes
 npx vercel env add NEXT_PUBLIC_SUPABASE_ANON_KEY --environment production,preview,development --value "<sua-chave-anon>" --yes
-npx vercel env add NEXT_PUBLIC_APP_VERSION --environment production,preview,development --value "1.2.0" --yes
 npx vercel deploy --prod --yes
 ```
 
@@ -474,7 +447,6 @@ npx vercel env add VELO_IA_API_URL --environment production --value "https://sua
 npx vercel env add VELO_IA_API_KEY --environment production --value "<a-mesma-chave-de-ai/.env>" --yes
 npx vercel env add VELO_IA_HF_TOKEN --environment production --value "hf_..." --yes
 npx vercel env add VELO_IA_TIMEOUT_MS --environment production --value "55000" --yes
-npx vercel env add APP_MIN_VERSION --environment production --value "1.1.0" --yes
 ```
 
 O comando final imprime a **Production URL** (`https://<projeto>.vercel.app`). Variáveis `NEXT_PUBLIC_*` precisam existir **antes** do build; se mudar alguma, rode um novo `vercel deploy --prod`.
@@ -508,8 +480,7 @@ O `.gitignore` já ignora `.env.local`, `.next`, `node_modules`, `.vercel`, keys
 4. Em **Environment Variables**, adicione as duas variáveis em **Production**, **Preview** e **Development**:
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-   - `NEXT_PUBLIC_APP_VERSION` (ex.: `1.2.0`)
-5. Se a velo ia estiver hospedada, adicione `VELO_IA_API_URL`, `VELO_IA_API_KEY`, `VELO_IA_HF_TOKEN` e `VELO_IA_TIMEOUT_MS` em **Production** (e `APP_MIN_VERSION` quando quiser exigir uma versão mínima). O `VELO_IA_MOCK=1` existe só como fallback de demonstração e não deve ser usado em produção.
+5. Se a velo ia estiver hospedada, adicione `VELO_IA_API_URL`, `VELO_IA_API_KEY`, `VELO_IA_HF_TOKEN` e `VELO_IA_TIMEOUT_MS` em **Production**. O `VELO_IA_MOCK=1` existe só como fallback de demonstração e não deve ser usado em produção.
 6. Clique em **Deploy**.
 
 > `NEXT_PUBLIC_*` é embutido no bundle durante o build. Se trocar a URL ou a chave, faça um novo deploy (não basta reiniciar a função).
