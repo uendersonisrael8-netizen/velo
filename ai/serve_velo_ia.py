@@ -29,15 +29,17 @@ from starlette.concurrency import run_in_threadpool
 
 BASE_DIR = Path(__file__).resolve().parent
 
-if __package__ in (None, ""):
-    sys.path.insert(0, str(BASE_DIR.parent))
-    from ai import __version__
-    from ai.engine import EngineConfig, EngineNotReady, VeloIaEngine
-    from ai.memory import DEFAULT_HISTORY_LIMIT, MemoryStore
-else:
-    from . import __version__
+if __package__:
+    from .version import __version__
     from .engine import EngineConfig, EngineNotReady, VeloIaEngine
     from .memory import DEFAULT_HISTORY_LIMIT, MemoryStore
+else:
+    # Funciona tanto com `python ai/serve_velo_ia.py` quanto com os arquivos
+    # soltos na raiz de um Hugging Face Space (`python app.py`).
+    sys.path.insert(0, str(BASE_DIR))
+    from version import __version__
+    from engine import EngineConfig, EngineNotReady, VeloIaEngine
+    from memory import DEFAULT_HISTORY_LIMIT, MemoryStore
 
 load_dotenv(BASE_DIR / ".env")
 
@@ -73,6 +75,7 @@ class Settings:
     memory_db: str
     mock: bool
     load_in_4bit: bool
+    zero_gpu: bool
     host: str
     port: int
 
@@ -81,12 +84,13 @@ class Settings:
         return cls(
             api_key=os.getenv("VELO_IA_API_KEY", "").strip(),
             model_name=os.getenv(
-                "VELO_IA_MODEL", "meta-llama/Llama-3.2-3B-Instruct"
+                "VELO_IA_MODEL", "Qwen/Qwen2.5-3B-Instruct"
             ).strip(),
             adapter_path=env_path("VELO_IA_ADAPTER", BASE_DIR / "velo-ia-lora"),
             memory_db=env_path("VELO_IA_MEMORY_DB", BASE_DIR / "velo_ia_memory.db"),
             mock=env_flag("VELO_IA_MOCK", False),
             load_in_4bit=env_flag("VELO_IA_4BIT", True),
+            zero_gpu=env_flag("VELO_IA_ZERO_GPU", False),
             host=os.getenv("VELO_IA_HOST", "127.0.0.1").strip(),
             port=int(os.getenv("VELO_IA_PORT", "8000")),
         )
@@ -159,9 +163,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             adapter_path=settings.adapter_path,
             mock=settings.mock,
             load_in_4bit=settings.load_in_4bit,
+            zero_gpu=settings.zero_gpu,
         )
     )
     app.state.engine = engine
+    # O Space pode injetar aqui uma função decorada com @spaces.GPU antes do
+    # startup. Fora do ZeroGPU, usamos a geração normal do engine.
+    if not hasattr(app.state, "generate"):
+        app.state.generate = engine.generate
 
     if not settings.api_key:
         logger.warning(
@@ -203,6 +212,7 @@ def root(request: Request) -> dict[str, object]:
         "version": __version__,
         "mock": engine.mock,
         "ready": engine.ready,
+        "demo": "/demo",
     }
 
 
@@ -217,6 +227,7 @@ def health(request: Request) -> dict[str, object]:
         "status": "ok" if engine.ready else "degraded",
         "ready": engine.ready,
         "mock": engine.mock,
+        "zero_gpu": settings.zero_gpu,
         "model": settings.model_name,
         "error": engine.error,
     }
@@ -237,7 +248,8 @@ async def chat(payload: ChatRequest, request: Request) -> ChatResponse:
     user_message_id = memory.add_message(conversation_id, "user", payload.message)
 
     try:
-        reply = await run_in_threadpool(engine.generate, history, payload.message)
+        generator = getattr(request.app.state, "generate", engine.generate)
+        reply = await run_in_threadpool(generator, history, payload.message)
         if not reply.strip():
             raise RuntimeError("O modelo retornou uma resposta vazia.")
     except EngineNotReady as exc:

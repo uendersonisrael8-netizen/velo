@@ -19,7 +19,7 @@ from .prompts import SYSTEM_PROMPT
 
 logger = logging.getLogger("velo_ia.engine")
 
-DEFAULT_MODEL = "meta-llama/Llama-3.2-3B-Instruct"
+DEFAULT_MODEL = "Qwen/Qwen2.5-3B-Instruct"
 DEFAULT_MAX_INPUT_TOKENS = 4096
 DEFAULT_MAX_NEW_TOKENS = 320
 
@@ -65,6 +65,10 @@ class EngineConfig:
     adapter_path: str = ""
     mock: bool = False
     load_in_4bit: bool = True
+    # ZeroGPU (Hugging Face Spaces): o `spaces` emula CUDA fora das funções
+    # decoradas. Nesse modo carregamos o modelo direto em `cuda` e deixamos o
+    # runtime empacotar os pesos para a GPU real na primeira chamada.
+    zero_gpu: bool = False
     max_input_tokens: int = DEFAULT_MAX_INPUT_TOKENS
     max_new_tokens: int = DEFAULT_MAX_NEW_TOKENS
     temperature: float = 0.8
@@ -119,7 +123,6 @@ class VeloIaEngine:
 
             self._torch = torch
             model_name = self.config.model_name
-            adapter_path = Path(self.config.adapter_path).expanduser()
 
             logger.info("carregando tokenizer de %s", model_name)
             tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -129,45 +132,59 @@ class VeloIaEngine:
 
             use_cuda = torch.cuda.is_available()
             quantization_config = None
-            if use_cuda and self.config.load_in_4bit:
-                try:
-                    import bitsandbytes  # noqa: F401
-                    from transformers import BitsAndBytesConfig
 
-                    quantization_config = BitsAndBytesConfig(
-                        load_in_4bit=True,
-                        bnb_4bit_quant_type="nf4",
-                        bnb_4bit_compute_dtype=torch.bfloat16,
-                        bnb_4bit_use_double_quant=True,
-                    )
-                    logger.info("carregando modelo em 4-bit (nf4)")
-                except ImportError:
-                    logger.warning(
-                        "bitsandbytes não instalado; carregando o modelo sem "
-                        "quantização. Instale bitsandbytes para economizar VRAM."
-                    )
-
-            if use_cuda:
-                dtype = (
-                    torch.bfloat16
-                    if torch.cuda.is_bf16_supported()
-                    else torch.float16
-                )
+            if self.config.zero_gpu:
+                # No ZeroGPU o CUDA é emulado no processo principal. Carregar
+                # direto em `cuda` deixa os pesos prontos para o runtime
+                # empacotar e enviar à GPU real na primeira chamada decorada.
+                use_cuda = True
+                dtype = torch.bfloat16
                 model_kwargs: dict[str, Any] = {
                     "torch_dtype": dtype,
-                    "device_map": "auto",
+                    "device_map": "cuda",
                     "low_cpu_mem_usage": True,
                 }
+                logger.info("ZeroGPU: carregando o modelo direto em cuda (emulação).")
             else:
-                dtype = torch.float32
-                model_kwargs = {
-                    "torch_dtype": dtype,
-                    "low_cpu_mem_usage": True,
-                }
-                logger.warning(
-                    "nenhuma GPU CUDA encontrada; o modelo vai rodar em CPU e "
-                    "pode responder devagar."
-                )
+                if use_cuda and self.config.load_in_4bit:
+                    try:
+                        import bitsandbytes  # noqa: F401
+                        from transformers import BitsAndBytesConfig
+
+                        quantization_config = BitsAndBytesConfig(
+                            load_in_4bit=True,
+                            bnb_4bit_quant_type="nf4",
+                            bnb_4bit_compute_dtype=torch.bfloat16,
+                            bnb_4bit_use_double_quant=True,
+                        )
+                        logger.info("carregando modelo em 4-bit (nf4)")
+                    except ImportError:
+                        logger.warning(
+                            "bitsandbytes não instalado; carregando o modelo sem "
+                            "quantização. Instale bitsandbytes para economizar VRAM."
+                        )
+
+                if use_cuda:
+                    dtype = (
+                        torch.bfloat16
+                        if torch.cuda.is_bf16_supported()
+                        else torch.float16
+                    )
+                    model_kwargs = {
+                        "torch_dtype": dtype,
+                        "device_map": "auto",
+                        "low_cpu_mem_usage": True,
+                    }
+                else:
+                    dtype = torch.float32
+                    model_kwargs = {
+                        "torch_dtype": dtype,
+                        "low_cpu_mem_usage": True,
+                    }
+                    logger.warning(
+                        "nenhuma GPU CUDA encontrada; o modelo vai rodar em CPU e "
+                        "pode responder devagar."
+                    )
 
             if quantization_config is not None:
                 model_kwargs["quantization_config"] = quantization_config
@@ -177,14 +194,26 @@ class VeloIaEngine:
                 model_name, **model_kwargs
             )
 
-            if (adapter_path / "adapter_config.json").is_file():
+            adapter_ref = self.config.adapter_path.strip()
+            adapter_path = Path(adapter_ref).expanduser() if adapter_ref else Path()
+            # Aceita tanto uma pasta local quanto um repositório do Hub
+            # (`usuario/velo-ia-lora`). O adaptador continua opcional.
+            hub_adapter = bool(
+                adapter_ref
+                and re.fullmatch(r"[\w.-]+/[\w.-]+", adapter_ref)
+                and not adapter_path.exists()
+            )
+            if adapter_ref and (adapter_path / "adapter_config.json").is_file():
                 logger.info("aplicando adaptador LoRA de %s", adapter_path)
                 model = PeftModel.from_pretrained(model, str(adapter_path))
+            elif hub_adapter:
+                logger.info("aplicando adaptador LoRA do Hub: %s", adapter_ref)
+                model = PeftModel.from_pretrained(model, adapter_ref)
             else:
                 logger.warning(
                     "adaptador LoRA não encontrado em %s; usando o modelo base. "
                     "Rode ai/train_velo_ia.py para criar o adaptador.",
-                    adapter_path,
+                    adapter_ref or "(vazio)",
                 )
 
             model.eval()

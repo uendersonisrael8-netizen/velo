@@ -7,6 +7,7 @@ import {
 import {
   applyVeloIaIdentity,
   isVeloIaConfigured,
+  isVeloIaMock,
   resolveVeloIaIdentity,
   veloIaClearHistory,
   veloIaHistory,
@@ -30,7 +31,7 @@ export async function GET(request: NextRequest) {
     return respond(
       authJson({
         ok: true,
-        configured: false,
+        configured: isVeloIaMock(),
         messages: [],
       }),
     );
@@ -46,6 +47,15 @@ export async function GET(request: NextRequest) {
       }),
     );
   } catch (error) {
+    if (isVeloIaMock()) {
+      return respond(
+        authJson({
+          ok: true,
+          configured: true,
+          messages: [],
+        }),
+      );
+    }
     const status =
       error instanceof VeloIaRequestError && error.status === 504 ? 504 : 502;
     return respond(
@@ -88,6 +98,15 @@ export async function DELETE(request: NextRequest) {
       }),
     );
   } catch (error) {
+    if (isVeloIaMock()) {
+      return respond(
+        authJson({
+          ok: true,
+          configured: true,
+          deleted: 0,
+        }),
+      );
+    }
     const status =
       error instanceof VeloIaRequestError && error.status === 504 ? 504 : 502;
     return respond(

@@ -5,7 +5,11 @@ import { createSupabaseServerClient, isSupabaseServerConfigured } from "@/lib/su
 
 const CONFIGURED_URL = process.env.VELO_IA_API_URL?.trim().replace(/\/+$/, "");
 const CONFIGURED_KEY = process.env.VELO_IA_API_KEY?.trim();
+const CONFIGURED_HF_TOKEN = process.env.VELO_IA_HF_TOKEN?.trim();
 const CONFIGURED_TIMEOUT = Number(process.env.VELO_IA_TIMEOUT_MS ?? "45000");
+const MOCK_ENABLED = ["1", "true", "yes", "on", "sim"].includes(
+  (process.env.VELO_IA_MOCK ?? "").trim().toLowerCase(),
+);
 
 const ANON_COOKIE = "velo_ia_session";
 const ANON_COOKIE_MAX_AGE = 60 * 60 * 24 * 180;
@@ -61,6 +65,56 @@ export function isVeloIaConfigured() {
   if (!CONFIGURED_URL || !/^https?:\/\//i.test(CONFIGURED_URL)) return false;
   if (CONFIGURED_KEY) return true;
   return process.env.NODE_ENV !== "production";
+}
+
+/**
+ * Fallback de demonstração. Quando `VELO_IA_MOCK=1`, o proxy responde com
+ * mensagens prontas se a API não estiver configurada ou estiver offline.
+ * Não substitui a API real: se ela responder, a resposta real é usada.
+ */
+export function isVeloIaMock() {
+  return MOCK_ENABLED;
+}
+
+const MOCK_REPLIES = [
+  "tô aqui. 💛 me conta um pouco mais do que tá acontecendo? não precisa resumir bonito, pode falar do jeito que vier.",
+  "entendi. às vezes a cabeça embaralha tudo antes da gente conseguir nomear. o que mais tá pesando aí hoje?",
+  "isso soa cansativo. você quer desabafar sem interrupção ou prefere que eu te ajude a pensar em um próximo passo pequeno?",
+  "olha, não vou te dar uma frase pronta porque isso não resolve. mas eu tô prestando atenção. como você tá se sentindo agora, de verdade?",
+  "faz sentido sentir isso. quer que eu fique aqui um pouco, só conversando, ou você precisa de uma ideia prática pra destravar o dia?",
+] as const;
+
+export function mockVeloIaReply(message: string): VeloIaChatResult {
+  const text = message.toLowerCase();
+  let reply: string;
+
+  if (/(suicid|me matar|tirar minha vida|me machucar|automutil)/.test(text)) {
+    reply =
+      "eu tô aqui com você, e o que você sentiu importa muito. 💛\n\n" +
+      "quando a dor chega nesse ponto, não precisa atravessar isso sozinho. " +
+      "no brasil, o CVV atende 24h de graça no 188. se houver risco agora, " +
+      "ligue 190; em emergência de saúde, 192 (SAMU).";
+  } else if (/(ansios|ansiedade|dormir)/.test(text)) {
+    reply =
+      "ansiedade adora virar festa justo na hora de dormir, né? tenta não " +
+      "brigar com o relógio. baixa a luz, deixa o celular um pouco de lado e " +
+      "escolhe só uma coisa pequena pra resolver amanhã. uma noite ruim não " +
+      "estraga tudo.";
+  } else if (/(trabalho|chefe|emprego|entrevista)/.test(text)) {
+    reply =
+      "trabalho tem um jeito especial de ocupar a cabeça mesmo fora do " +
+      "horário, né? quer me contar o que aconteceu ou prefere pensar juntos " +
+      "em algo pequeno que te faça sentir mais no controle amanhã?";
+  } else if (/(namor|crush|relacionamento|mensagem)/.test(text)) {
+    reply =
+      "essa espera de resposta é cruel. mas visualizar não é a mesma coisa " +
+      "que ignorar de propósito. você tá com vontade de mandar outra mensagem " +
+      "ou de respirar um pouco antes?";
+  } else {
+    reply = MOCK_REPLIES[message.length % MOCK_REPLIES.length];
+  }
+
+  return { reply, mock: true, model: "mock" };
 }
 
 export async function resolveVeloIaIdentity(
@@ -146,6 +200,11 @@ async function requestJson<T>(
         Accept: "application/json",
         "Content-Type": "application/json",
         ...(CONFIGURED_KEY ? { "X-API-Key": CONFIGURED_KEY } : {}),
+        // O token do Hugging Face atribui a cota do ZeroGPU à conta e libera
+        // modelos/adaptadores privados. Ele nunca é enviado ao navegador.
+        ...(CONFIGURED_HF_TOKEN
+          ? { Authorization: `Bearer ${CONFIGURED_HF_TOKEN}` }
+          : {}),
         ...init.headers,
       },
     });

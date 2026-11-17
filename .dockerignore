@@ -1,0 +1,27 @@
+# Contexto de build da API Python (ai/Dockerfile). Mantém a imagem pequena.
+.git
+.github
+.next
+node_modules
+android
+public
+src
+supabase
+README.md
+AGENTS.md
+package.json
+package-lock.json
+tsconfig.json
+tsconfig.tsbuildinfo
+next.config.ts
+eslint.config.mjs
+capacitor.config.ts
+ai/.venv
+ai/.env
+ai/__pycache__
+ai/**/__pycache__
+ai/velo-ia-lora
+ai/outputs
+ai/*.db
+ai/*.db-*
+ai/*.ipynb_checkpoints

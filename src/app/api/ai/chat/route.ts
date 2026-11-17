@@ -9,6 +9,8 @@ import {
 import {
   applyVeloIaIdentity,
   isVeloIaConfigured,
+  isVeloIaMock,
+  mockVeloIaReply,
   resolveVeloIaIdentity,
   veloIaChat,
   VeloIaRequestError,
@@ -88,6 +90,22 @@ export async function POST(request: NextRequest) {
   }
 
   if (!isVeloIaConfigured()) {
+    if (isVeloIaMock()) {
+      const result = mockVeloIaReply(parsed.data.message);
+      return respond(
+        authJson(
+          {
+            ok: true,
+            reply: result.reply,
+            mock: true,
+            model: result.model ?? null,
+          },
+          200,
+          rateLimitHeaders(identityLimit),
+        ),
+      );
+    }
+
     return respond(
       authError(
         "A velo ia ainda não está conectada neste ambiente. Configure VELO_IA_API_URL e VELO_IA_API_KEY.",
@@ -126,6 +144,26 @@ export async function POST(request: NextRequest) {
       ),
     );
   } catch (error) {
+    if (
+      isVeloIaMock() &&
+      error instanceof VeloIaRequestError &&
+      [502, 503, 504].includes(error.status)
+    ) {
+      const result = mockVeloIaReply(parsed.data.message);
+      return respond(
+        authJson(
+          {
+            ok: true,
+            reply: result.reply,
+            mock: true,
+            model: result.model ?? null,
+          },
+          200,
+          rateLimitHeaders(identityLimit),
+        ),
+      );
+    }
+
     if (error instanceof VeloIaRequestError) {
       if (error.status === 429) {
         return respond(

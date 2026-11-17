@@ -3,7 +3,7 @@
 
 Exemplo:
     python ai/train_velo_ia.py \
-        --model meta-llama/Llama-3.2-3B-Instruct \
+        --model Qwen/Qwen2.5-3B-Instruct \
         --dataset ai/dataset_amigo.jsonl \
         --output-dir ai/velo-ia-lora
 
@@ -35,7 +35,7 @@ from transformers import (
 )
 
 BASE_DIR = Path(__file__).resolve().parent
-DEFAULT_MODEL = "meta-llama/Llama-3.2-3B-Instruct"
+DEFAULT_MODEL = "Qwen/Qwen2.5-3B-Instruct"
 DEFAULT_DATASET = BASE_DIR / "dataset_amigo.jsonl"
 DEFAULT_OUTPUT = BASE_DIR / "velo-ia-lora"
 
