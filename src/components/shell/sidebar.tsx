@@ -9,6 +9,7 @@ import {
   Home,
   LogIn,
   LogOut,
+  MessageCircle,
   Plus,
   Sparkles,
   UserRound,
@@ -18,6 +19,7 @@ import {
 import type { CSSProperties } from "react";
 import { Brand } from "@/components/brand";
 import { useApp } from "@/components/providers/app-provider";
+import { useDirectUnread } from "@/components/providers/direct-provider";
 import { Avatar } from "@/components/ui/avatar";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { ANDROID_APK_URL } from "@/lib/site";
@@ -27,6 +29,7 @@ import { cn } from "@/lib/utils";
 const navItems = [
   { href: "/", label: "Para você", icon: Home },
   { href: "/explore", label: "Explorar", icon: Compass },
+  { href: "/direct", label: "Direct", icon: MessageCircle },
   { href: "/chat", label: "velo ia", icon: Sparkles },
   { href: "/upload", label: "Publicar", icon: Plus },
   { href: "/saved", label: "Guardados", icon: Bookmark },
@@ -43,6 +46,7 @@ export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { user, ready, signOut, volume, muted, setVolume, toggleMute } = useApp();
+  const { unreadCount } = useDirectUnread();
 
   const handleSignOut = async () => {
     await signOut();
@@ -77,7 +81,13 @@ export function Sidebar() {
                 strokeWidth={active ? 1.9 : 1.6}
               />
               <span>{item.label}</span>
-              {active ? <span className="ml-auto size-1.5 rounded-full bg-accent" /> : null}
+              {item.href === "/direct" && unreadCount > 0 ? (
+                <span className="ml-auto flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-accent px-1 text-[8px] font-bold tabular-nums text-[#0a0a0a]">
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </span>
+              ) : active ? (
+                <span className="ml-auto size-1.5 rounded-full bg-accent" />
+              ) : null}
             </Link>
           );
         })}

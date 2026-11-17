@@ -6,7 +6,7 @@ const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
 
 // O velo é uma rede aberta: feed, explorar, perfis públicos, login e cadastro
 // podem ser vistos por qualquer visitante. Só estas rotas exigem sessão.
-const PRIVATE_PATHS = ["/upload", "/profile", "/saved"];
+const PRIVATE_PATHS = ["/upload", "/profile", "/saved", "/direct"];
 
 const PRIVATE_CACHE_HEADERS = {
   "Cache-Control": "private, no-cache, no-store, must-revalidate, max-age=0",

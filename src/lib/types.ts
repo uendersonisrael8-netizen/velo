@@ -53,6 +53,29 @@ export type StoryGroup = {
   items: StoryItem[];
 };
 
+export type DirectMessage = {
+  id: string;
+  conversationId: string;
+  sender: Profile;
+  body: string;
+  post: Post | null;
+  createdAt: string;
+};
+
+export type DirectConversation = {
+  id: string;
+  participant: Profile;
+  lastMessage: {
+    body: string;
+    postId: string | null;
+    mediaType: MediaType | null;
+    senderId: string;
+    createdAt: string;
+  } | null;
+  unreadCount: number;
+  updatedAt: string;
+};
+
 export type NewPostInput = {
   file: File;
   caption: string;

@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { Bookmark, Heart, MapPin, MessageCircle, Music2, Share2 } from "lucide-react";
+import { SharePostDialog } from "@/components/direct/share-post-dialog";
 import { useApp } from "@/components/providers/app-provider";
 import { useToast } from "@/components/providers/toast-provider";
 import { Avatar } from "@/components/ui/avatar";
@@ -28,6 +30,7 @@ export function PostLightbox({
     toggleFollow,
   } = useApp();
   const { toast } = useToast();
+  const [shareOpen, setShareOpen] = useState(false);
 
   const open = Boolean(post);
   const liked = post ? likedIds.includes(post.id) : false;
@@ -35,32 +38,14 @@ export function PostLightbox({
   const following = post ? followingIds.includes(post.author.id) : false;
   const isMine = Boolean(post && user?.id === post.author.id);
 
-  const handleShare = async () => {
-    if (!post) return;
-    const url = `${window.location.origin}/#${post.id}`;
-    try {
-      if (navigator.share) {
-        await navigator.share({
-          title: `@${post.author.handle} no velo.`,
-          text: post.caption,
-          url,
-        });
-      } else {
-        await navigator.clipboard.writeText(url);
-        toast("Link copiado.", "success");
-      }
-    } catch {
-      // dismissed share sheet
-    }
-  };
-
   return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      ariaLabel={post ? `Publicação de ${post.author.displayName}` : "Publicação"}
-      className="max-w-[980px]"
-    >
+    <>
+      <Dialog
+        open={open}
+        onClose={onClose}
+        ariaLabel={post ? `Publicação de ${post.author.displayName}` : "Publicação"}
+        className="max-w-[980px]"
+      >
       {post ? (
         <div className="grid md:grid-cols-[minmax(0,1.08fr)_minmax(340px,0.92fr)]">
           <div className="relative flex h-[44svh] items-center justify-center overflow-hidden bg-[#060606] md:h-[min(80svh,700px)] md:rounded-l-[24px]">
@@ -209,7 +194,7 @@ export function PostLightbox({
                 />
                 <LightboxAction
                   label="Compartilhar"
-                  onClick={() => void handleShare()}
+                  onClick={() => setShareOpen(true)}
                   icon={<Share2 className="size-[17px]" strokeWidth={1.7} />}
                 />
                 <LightboxAction
@@ -238,7 +223,15 @@ export function PostLightbox({
           </div>
         </div>
       ) : null}
-    </Dialog>
+      </Dialog>
+      {post ? (
+        <SharePostDialog
+          post={post}
+          open={shareOpen}
+          onClose={() => setShareOpen(false)}
+        />
+      ) : null}
+    </>
   );
 }
 

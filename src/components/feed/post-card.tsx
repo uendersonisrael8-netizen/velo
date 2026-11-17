@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { useApp } from "@/components/providers/app-provider";
 import { useToast } from "@/components/providers/toast-provider";
+import { SharePostDialog } from "@/components/direct/share-post-dialog";
 import { Avatar } from "@/components/ui/avatar";
 import { useIsMobile } from "@/components/ui/use-is-mobile";
 import type { Post } from "@/lib/types";
@@ -64,6 +65,7 @@ export function PostCard({
   const [showBurst, setShowBurst] = useState(false);
   const [volumeOpen, setVolumeOpen] = useState(false);
   const [audioBlocked, setAudioBlocked] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
 
   const liked = likedIds.includes(post.id);
   const saved = savedIds.includes(post.id);
@@ -265,24 +267,6 @@ export function PostCard({
       toast(saved ? "Removido dos guardados." : "Salvo nos seus guardados.", "success");
     }
   }, [post.id, saved, toast, toggleSave]);
-
-  const handleShare = useCallback(async () => {
-    const url = `${window.location.origin}/#${post.id}`;
-    try {
-      if (navigator.share) {
-        await navigator.share({
-          title: `@${post.author.handle} no velo.`,
-          text: post.caption,
-          url,
-        });
-      } else {
-        await navigator.clipboard.writeText(url);
-        toast("Link copiado. Manda pra alguém.", "success");
-      }
-    } catch {
-      // The native share sheet can be dismissed. No need to alarm the user.
-    }
-  }, [post.author.handle, post.caption, post.id, toast]);
 
   const handleFollow = useCallback(() => {
     void toggleFollow(post.author.id);
@@ -531,7 +515,7 @@ export function PostCard({
         />
         <ActionButton
           label="Compartilhar"
-          onClick={handleShare}
+          onClick={() => setShareOpen(true)}
           icon={<Share2 className="size-[18px]" strokeWidth={1.8} />}
         />
 
@@ -586,6 +570,12 @@ export function PostCard({
           ) : null}
         </div>
       </div>
+
+      <SharePostDialog
+        post={post}
+        open={shareOpen}
+        onClose={() => setShareOpen(false)}
+      />
     </div>
   );
 }

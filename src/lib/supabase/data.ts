@@ -19,7 +19,7 @@ export const COMMENT_SELECT = `id, post_id, body, created_at, author:profiles!co
 export const STORY_SELECT = `id, media_type, media_url, poster_url, caption, created_at, author:profiles!stories_author_id_fkey(${PROFILE_FIELDS})`;
 
 type Joined<T> = T | T[] | null;
-type DbProfile = {
+export type DbProfile = {
   id: string;
   handle: string;
   display_name: string;
@@ -28,7 +28,7 @@ type DbProfile = {
   link: string | null;
   location: string | null;
 };
-type DbPost = {
+export type DbPost = {
   id: string;
   author_id: string;
   media_type: string;
@@ -61,7 +61,7 @@ type DbStory = {
   author: Joined<DbProfile>;
 };
 
-function one<T>(value: Joined<T>): T | null {
+export function one<T>(value: Joined<T>): T | null {
   if (Array.isArray(value)) return value[0] ?? null;
   return value ?? null;
 }

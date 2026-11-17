@@ -2,16 +2,17 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bookmark, Compass, Home, Plus, Sparkles, UserRound } from "lucide-react";
+import { Compass, Home, MessageCircle, Plus, Sparkles, UserRound } from "lucide-react";
+import { useDirectUnread } from "@/components/providers/direct-provider";
 import { cn } from "@/lib/utils";
 
 const items = [
   { href: "/", label: "Feed", icon: Home },
   { href: "/explore", label: "Explorar", icon: Compass },
   { href: "/upload", label: "Publicar", icon: Plus, featured: true },
-  { href: "/saved", label: "Salvos", icon: Bookmark },
-  { href: "/profile", label: "Perfil", icon: UserRound },
+  { href: "/direct", label: "Direct", icon: MessageCircle },
   { href: "/chat", label: "velo ia", icon: Sparkles },
+  { href: "/profile", label: "Perfil", icon: UserRound },
 ];
 
 function isActive(pathname: string, href: string) {
@@ -22,6 +23,7 @@ function isActive(pathname: string, href: string) {
 
 export function MobileNav() {
   const pathname = usePathname();
+  const { unreadCount } = useDirectUnread();
 
   return (
     <nav
@@ -55,7 +57,14 @@ export function MobileNav() {
                 active ? "text-ink" : "text-muted",
               )}
             >
-              <Icon className="size-[19px]" strokeWidth={active ? 2 : 1.6} />
+              <span className="relative">
+                <Icon className="size-[19px]" strokeWidth={active ? 2 : 1.6} />
+                {item.href === "/direct" && unreadCount > 0 ? (
+                  <span className="absolute -right-2 -top-1.5 flex h-[14px] min-w-[14px] items-center justify-center rounded-full bg-accent px-1 text-[7px] font-bold tabular-nums leading-none text-[#0a0a0a]">
+                    {unreadCount > 9 ? "9+" : unreadCount}
+                  </span>
+                ) : null}
+              </span>
               <span className="text-[8.5px] font-medium tracking-[0.02em]">{item.label}</span>
               <span
                 className={cn(
