@@ -12,16 +12,18 @@ pinned: false
 short_description: amiga virtual do velo
 models:
   - Qwen/Qwen2.5-3B-Instruct
+  - Qwen/Qwen2.5-0.5B-Instruct
 ---
 
 # velo ia — amiga virtual do velo
 
 Esta pasta é o serviço de IA do velo **e** o repositório do Hugging Face Space
-que o hospeda de graça no ZeroGPU.
+que o hospeda. O Space pode rodar em **ZeroGPU** (grátis para contas elegíveis)
+ou em **CPU Basic** (modelo leve, exige plano PRO atualmente).
 
 | Arquivo | Função |
 | --- | --- |
-| `app.py` | Entrada do Space: monta o FastAPI + Gradio e decora as funções com `@spaces.GPU`. |
+| `app.py` | Entrada do Space: monta o FastAPI + Gradio e aplica `@spaces.GPU` só no ZeroGPU. |
 | `train_velo_ia.py` | Fine-tuning LoRA com `transformers`, `peft` e `datasets`. |
 | `colab_treino.ipynb` | Notebook pronto para treinar no Google Colab (GPU grátis). |
 | `dataset_amigo.jsonl` | 10 diálogos de exemplo, informais e empáticos. |
@@ -129,16 +131,25 @@ curl -X POST http://127.0.0.1:8000/chat \
   -d '{"conversation_id":"anon_teste123456","message":"oi, tudo bem?"}'
 ```
 
-## 5. Hospedagem gratuita no Hugging Face Spaces (ZeroGPU)
+## 5. Hospedagem no Hugging Face Spaces
 
-Esta é a opção gratuita recomendada: o Space roda de graça, o ZeroGPU aloca
-uma GPU NVIDIA sob demanda e o adaptador LoRA + SQLite continuam funcionando.
-O único limite é a cota diária de GPU da conta (veja abaixo).
+O Space pode rodar em dois hardwares:
+
+| Hardware | Custo | Quando usar |
+| --- | --- | --- |
+| **ZeroGPU** | Grátis para contas com e-mail verificado e **mais de 30 dias** (até 2 Spaces) | GPU sob demanda, modelo 3B, cota diária de GPU |
+| **CPU Basic** (2 vCPU, 16 GB RAM) | **Plano PRO** (criar Space Gradio/Docker é pago) | Modelo 0.5B, sem cota de GPU, mais lento |
+| **Static** | Grátis | Só arquivos estáticos; não roda Python |
+
+> **Conta nova (<30 dias):** o Hugging Face não libera ZeroGPU nem CPU Basic
+> gratuitamente. Nesse caso, use uma API de inferência externa (Groq, Gemini,
+> OpenRouter) ou aguarde os 30 dias / assine o PRO. Não existe hoje um Space
+> Python gratuito para conta nova.
 
 > **Por que não um Space Docker?** O ZeroGPU só está disponível para o SDK
-> **Gradio**. Spaces Docker não recebem ZeroGPU e, para contas novas, exigem
-> plano pago. Por isso o `app.py` monta o FastAPI e o Gradio na mesma porta:
-> a API usada pelo velo fica em `/chat` e a interface de teste em `/demo`.
+> **Gradio**. Spaces Docker não recebem ZeroGPU e também exigem plano pago.
+> Por isso o `app.py` monta o FastAPI e o Gradio na mesma porta: a API usada
+> pelo velo fica em `/chat` e a interface de teste em `/demo`.
 
 ### 5.1 Criar a conta e o Space
 
@@ -147,7 +158,7 @@ O único limite é a cota diária de GPU da conta (veja abaixo).
 3. Na web, clique em **New Space**:
    - **Space name:** `velo-ia`
    - **SDK:** `Gradio`
-   - **Hardware:** `ZeroGPU` (a opção gratuita)
+   - **Hardware:** `ZeroGPU` (se elegível) ou `CPU Basic` (com PRO)
    - **Visibility:** `Public` (ou `Private`, se preferir)
 4. O Space vai criar um repositório vazio. A URL final será
    `https://<seu-usuario>-velo-ia.hf.space`.
@@ -172,7 +183,8 @@ hf upload <seu-usuario>/velo-ia ai --repo-type space `
   --exclude "*.db" `
   --exclude "*.db-*" `
   --exclude "__pycache__/**" `
-  --exclude "outputs/**"
+  --exclude "outputs/**" `
+  --exclude ".env"
 ```
 
 Se preferir Git:
@@ -182,7 +194,7 @@ git clone https://huggingface.co/spaces/<seu-usuario>/velo-ia
 Copy-Item ai\* huggingface-velo-ia -Recurse -Force
 cd huggingface-velo-ia
 git add .
-git commit -m "velo ia no ZeroGPU"
+git commit -m "velo ia no Space"
 git push
 ```
 
@@ -193,13 +205,16 @@ Em **Settings → Variables and secrets**:
 | Nome | Tipo | Valor |
 | --- | --- | --- |
 | `VELO_IA_API_KEY` | Secret | segredo longo, o mesmo da Vercel |
-| `VELO_IA_MODEL` | Variable | `Qwen/Qwen2.5-3B-Instruct` |
+| `VELO_IA_ZERO_GPU` | Variable | `1` no ZeroGPU; `0` no CPU Basic |
+| `VELO_IA_MODEL` | Variable | `Qwen/Qwen2.5-3B-Instruct` (ZeroGPU) ou `Qwen/Qwen2.5-0.5B-Instruct` (CPU) |
 | `VELO_IA_ADAPTER` | Variable | `<seu-usuario>/velo-ia-lora` (opcional) |
 | `VELO_IA_MEMORY_DB` | Variable | `/data/velo_ia_memory.db` (só com storage persistente) |
 | `HF_TOKEN` | Secret | seu token, se o modelo/adaptador for gated ou privado |
-| `VELO_IA_GPU_DURATION` | Variable | `90` (tempo máximo de cada chamada, em segundos) |
+| `VELO_IA_GPU_DURATION` | Variable | `90` (só no ZeroGPU) |
+| `VELO_IA_MAX_NEW_TOKENS` | Variable | `160` no CPU; `320` no ZeroGPU |
 
-O `app.py` define `VELO_IA_ZERO_GPU=1` sozinho quando o pacote `spaces` existe.
+O `app.py` **não** liga mais o ZeroGPU sozinho: ele respeita `VELO_IA_ZERO_GPU`.
+Em um Space de CPU sem essa variável, o padrão é CPU e o modelo 0.5B.
 Não defina `VELO_IA_MOCK=1` no Space se quiser o modelo real.
 
 ### 5.4 Esperar o build e testar
@@ -211,7 +226,8 @@ vários minutos. Quando o Space ficar **Running**, teste:
 Invoke-RestMethod -Uri "https://<seu-usuario>-velo-ia.hf.space/health"
 ```
 
-A resposta deve ter `"status": "ok"`, `"ready": true` e `"zero_gpu": true`.
+A resposta deve ter `"status": "ok"`, `"ready": true` e `"zero_gpu": false`
+no CPU Basic (ou `true` no ZeroGPU).
 
 Teste uma mensagem (o `X-API-Key` é o mesmo `VELO_IA_API_KEY`):
 
@@ -258,10 +274,13 @@ vercel --prod
 
 ### 5.6 Cota, cold start e fallback
 
-- **Cota gratuita:** uma conta gratuita tem cerca de **5 minutos de GPU por
+- **Cota do ZeroGPU:** uma conta gratuita tem cerca de **5 minutos de GPU por
   dia**; PRO tem 40 minutos. Cada resposta de um modelo 3B costuma consumir
   5–15 segundos. Para mais mensagens, use um modelo menor
   (`Qwen/Qwen2.5-1.5B-Instruct` ou `Qwen/Qwen2.5-0.5B-Instruct`) ou o PRO.
+- **CPU Basic:** não tem cota de GPU, mas o Space é um recurso pago (PRO). O
+  modelo 0.5B responde em CPU; espere alguns segundos a dezenas de segundos
+  por resposta. `VELO_IA_MAX_NEW_TOKENS=160` mantém o tempo sob controle.
 - **Cold start:** o primeiro pedido depois de um período ocioso pode demorar.
   O proxy do Next.js espera até `VELO_IA_TIMEOUT_MS` (55 s na Vercel).
 - **Fallback mock:** em desenvolvimento, `VELO_IA_MOCK=1` no `ai/.env` faz a
@@ -357,8 +376,8 @@ processo não cai.
 
 ## 8. Docker e outras hospedagens
 
-O `ai/Dockerfile` serve para VPS, Render, Railway, Fly.io ou um Space Docker
-com GPU paga:
+O `ai/Dockerfile` serve para VPS, Render, Railway, Fly.io, um Space Docker com
+GPU paga ou um Space Gradio em CPU Basic (PRO):
 
 ```powershell
 docker build -f ai/Dockerfile -t velo-ia .
@@ -370,10 +389,10 @@ docker run --rm -p 8000:8000 `
 ```
 
 Para GPU NVIDIA, troque a imagem base por uma com CUDA e instale o PyTorch com
-CUDA. O modo 4-bit (`VELO_IA_4BIT=1`) reduz a VRAM necessária. Serviços com
-plano gratuito sem GPU (Render, Railway) só conseguem rodar o modo mock ou um
-modelo muito pequeno em CPU — para produção gratuita de verdade, prefira o
-ZeroGPU.
+CUDA. O modo 4-bit (`VELO_IA_4BIT=1`) reduz a VRAM necessária. Em CPU, use
+`VELO_IA_MODEL=Qwen/Qwen2.5-0.5B-Instruct` e `VELO_IA_MAX_NEW_TOKENS=160`.
+Planos gratuitos de 512 MB (Render/Koyeb) não comportam nem o 0.5B — para
+produção gratuita, a opção é o ZeroGPU (conta elegível) ou uma API externa.
 
 ## 9. Endpoints
 

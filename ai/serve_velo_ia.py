@@ -59,6 +59,18 @@ def env_flag(name: str, default: bool = False) -> bool:
     return value.strip().lower() in TRUTHY
 
 
+def env_int(name: str, default: int) -> int:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        logger.warning("%s inválido (%r); usando %d", name, raw, default)
+        return default
+    return value if value > 0 else default
+
+
 def env_path(name: str, default: Path) -> str:
     value = os.getenv(name, "").strip()
     if not value:
@@ -76,6 +88,8 @@ class Settings:
     mock: bool
     load_in_4bit: bool
     zero_gpu: bool
+    max_input_tokens: int
+    max_new_tokens: int
     host: str
     port: int
 
@@ -91,6 +105,8 @@ class Settings:
             mock=env_flag("VELO_IA_MOCK", False),
             load_in_4bit=env_flag("VELO_IA_4BIT", True),
             zero_gpu=env_flag("VELO_IA_ZERO_GPU", False),
+            max_input_tokens=env_int("VELO_IA_MAX_INPUT_TOKENS", 4096),
+            max_new_tokens=env_int("VELO_IA_MAX_NEW_TOKENS", 320),
             host=os.getenv("VELO_IA_HOST", "127.0.0.1").strip(),
             port=int(os.getenv("VELO_IA_PORT", "8000")),
         )
@@ -164,6 +180,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             mock=settings.mock,
             load_in_4bit=settings.load_in_4bit,
             zero_gpu=settings.zero_gpu,
+            max_input_tokens=settings.max_input_tokens,
+            max_new_tokens=settings.max_new_tokens,
         )
     )
     app.state.engine = engine

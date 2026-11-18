@@ -1,4 +1,9 @@
-"""Entrypoint do Hugging Face Space da velo ia (SDK Gradio + ZeroGPU).
+"""Entrypoint do Hugging Face Space da velo ia (SDK Gradio).
+
+Funciona em dois hardwares:
+
+- **CPU Basic** (`VELO_IA_ZERO_GPU=0`): modelo leve, sem GPU e sem cota.
+- **ZeroGPU** (`VELO_IA_ZERO_GPU=1`): modelo maior e `@spaces.GPU`.
 
 O Space expõe:
 
@@ -25,20 +30,38 @@ except ImportError:  # execução local, sem o runtime do ZeroGPU
 BASE_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE_DIR))
 
+TRUTHY = {"1", "true", "yes", "on", "sim"}
+
+
+def env_flag(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in TRUTHY
+
+
+# O pacote `spaces` também é instalado em Spaces de CPU (ele está no
+# requirements.txt). Por isso a presença dele NÃO pode ligar o ZeroGPU: quem
+# decide é a variável explícita. Sem ela, o Space sobe em CPU.
+ZERO_GPU = env_flag("VELO_IA_ZERO_GPU", False)
+
+if not ZERO_GPU and os.getenv("SPACE_ID"):
+    # CPU Basic: 2 vCPU e 16 GB de RAM. O 0.5B em float32 cabe folgado e
+    # responde em tempo aceitável; o 3B fica para o ZeroGPU.
+    os.environ.setdefault("VELO_IA_MODEL", "Qwen/Qwen2.5-0.5B-Instruct")
+    os.environ.setdefault("VELO_IA_MAX_NEW_TOKENS", "160")
+
 import gradio as gr
 
 from engine import EngineNotReady
 from serve_velo_ia import app as api_app
 
-if spaces is not None:
-    os.environ.setdefault("VELO_IA_ZERO_GPU", "1")
-
 GPU_DURATION = int(os.getenv("VELO_IA_GPU_DURATION", "90"))
 
 
 def gpu(duration: int = GPU_DURATION):
-    """Aplica @spaces.GPU quando o runtime existe; senão vira um no-op."""
-    if spaces is not None:
+    """Aplica @spaces.GPU só quando o ZeroGPU está explicitamente ligado."""
+    if ZERO_GPU and spaces is not None:
         return spaces.GPU(duration=duration)
 
     def decorator(function):
@@ -116,7 +139,7 @@ def _report_zerogpu_startup() -> None:
     o Gradio com `mount_gradio_app` + uvicorn, chamamos o mesmo hook aqui. Sem
     isso o Space encerra com "No @spaces.GPU function detected during startup".
     """
-    if spaces is None:
+    if not ZERO_GPU or spaces is None:
         return
     try:
         from spaces.zero import startup as zero_startup

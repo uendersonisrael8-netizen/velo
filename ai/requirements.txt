@@ -9,8 +9,10 @@ transformers>=4.46,<5.0
 peft>=0.13,<1.0
 accelerate>=1.1,<2.0
 sentencepiece>=0.2,<1.0
-# Necessárias no Hugging Face Space (SDK Gradio + ZeroGPU). Também funcionam
-# localmente: `python ai/app.py` sobe a mesma API com a interface de teste.
+# Necessárias no Hugging Face Space (SDK Gradio). O pacote `spaces` só é usado
+# quando VELO_IA_ZERO_GPU=1; em CPU ele pode ficar instalado sem ativar nada.
+# Também funcionam localmente: `python ai/app.py` sobe a mesma API com a
+# interface de teste.
 gradio>=5.0,<7.0
 spaces>=0.1
 # Quantização 4-bit: só é instalada automaticamente no Linux. No Windows,

@@ -1,7 +1,10 @@
 # Imagem da API da velo ia para VPS, Render, Railway, Fly.io ou um Space
-# Docker com GPU paga. O Hugging Face Space gratuito usa o SDK Gradio +
-# ZeroGPU (veja `ai/app.py` e a seção de hospedagem no `ai/README.md`), porque
-# o ZeroGPU não está disponível para Spaces Docker.
+# Docker com GPU paga. No Hugging Face, o Space gratuito elegível usa o SDK
+# Gradio + ZeroGPU; o CPU Basic de Spaces Gradio/Docker exige plano PRO.
+# Veja `ai/app.py` e a seção de hospedagem no `ai/README.md`.
+#
+# Em CPU, use um modelo leve:
+#   -e VELO_IA_MODEL=Qwen/Qwen2.5-0.5B-Instruct -e VELO_IA_MAX_NEW_TOKENS=160
 #
 # Build (na raiz do repositório):
 #   docker build -f ai/Dockerfile -t velo-ia .
