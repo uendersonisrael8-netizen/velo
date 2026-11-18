@@ -8,6 +8,8 @@ import {
 } from "@/lib/auth/api";
 import {
   applyVeloIaIdentity,
+  groqChat,
+  isGroqConfigured,
   isVeloIaConfigured,
   isVeloIaMock,
   mockVeloIaReply,
@@ -89,7 +91,12 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (!isVeloIaConfigured()) {
+  // O FastAPI self-hosted continua tendo prioridade. Sem ele, o Groq assume
+  // como backend gratuito. Nunca chamamos os dois na mesma requisição.
+  const useFastApi = isVeloIaConfigured();
+  const useGroq = !useFastApi && isGroqConfigured();
+
+  if (!useFastApi && !useGroq) {
     if (isVeloIaMock()) {
       const result = mockVeloIaReply(parsed.data.message);
       return respond(
@@ -108,7 +115,7 @@ export async function POST(request: NextRequest) {
 
     return respond(
       authError(
-        "A velo ia ainda não está conectada neste ambiente. Configure VELO_IA_API_URL e VELO_IA_API_KEY.",
+        "A velo ia ainda não está conectada neste ambiente. Configure GROQ_API_KEY (recomendado) ou VELO_IA_API_URL e VELO_IA_API_KEY.",
         503,
         rateLimitHeaders(identityLimit),
       ),
@@ -116,10 +123,15 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const result = await veloIaChat({
-      conversationId: identity.conversationId,
-      message: parsed.data.message,
-    });
+    const result = useFastApi
+      ? await veloIaChat({
+          conversationId: identity.conversationId,
+          message: parsed.data.message,
+        })
+      : await groqChat({
+          message: parsed.data.message,
+          history: parsed.data.history,
+        });
 
     if (!result || typeof result.reply !== "string" || !result.reply.trim()) {
       return respond(

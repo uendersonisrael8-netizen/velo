@@ -6,11 +6,13 @@ import {
 } from "@/lib/auth/api";
 import {
   applyVeloIaIdentity,
+  isGroqConfigured,
   isVeloIaConfigured,
   isVeloIaMock,
   resolveVeloIaIdentity,
   veloIaClearHistory,
   veloIaHistory,
+  veloIaStorageKey,
   VeloIaRequestError,
 } from "@/lib/ai/server";
 
@@ -28,10 +30,14 @@ export async function GET(request: NextRequest) {
     applyVeloIaIdentity(response, identity);
 
   if (!isVeloIaConfigured()) {
+    // No caminho Groq o histórico fica no localStorage do navegador. O
+    // servidor só entrega a chave isolada por conversa e a lista vazia.
     return respond(
       authJson({
         ok: true,
-        configured: isVeloIaMock(),
+        configured: isGroqConfigured() || isVeloIaMock(),
+        storage: "local",
+        storageKey: veloIaStorageKey(identity.conversationId),
         messages: [],
       }),
     );
@@ -43,6 +49,8 @@ export async function GET(request: NextRequest) {
       authJson({
         ok: true,
         configured: true,
+        storage: "server",
+        storageKey: veloIaStorageKey(identity.conversationId),
         messages: Array.isArray(result.messages) ? result.messages : [],
       }),
     );
@@ -52,6 +60,8 @@ export async function GET(request: NextRequest) {
         authJson({
           ok: true,
           configured: true,
+          storage: "server",
+          storageKey: veloIaStorageKey(identity.conversationId),
           messages: [],
         }),
       );
@@ -82,7 +92,7 @@ export async function DELETE(request: NextRequest) {
     return respond(
       authJson({
         ok: true,
-        configured: false,
+        configured: isGroqConfigured() || isVeloIaMock(),
         deleted: 0,
       }),
     );

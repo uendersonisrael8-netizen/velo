@@ -19,7 +19,7 @@ O APK é compilado e publicado automaticamente pelo GitHub Actions sempre que o 
 | App | Next.js 16 (App Router), React 19, TypeScript |
 | Estilo | Tailwind CSS 4, design tokens próprios |
 | Dados | Supabase (Auth, Postgres, Storage, Realtime) |
-| IA | FastAPI + transformers + peft (LoRA) + SQLite — pasta `ai/` |
+| IA | Groq (grátis) via proxy Next.js; FastAPI + transformers + peft (LoRA) + SQLite opcional — pasta `ai/` |
 | Validação | Zod + validação de mídia no cliente |
 | Ícones | lucide-react |
 
@@ -227,12 +227,21 @@ A **velo ia** é a amiga virtual do velo. A tela `/chat` tem conversa privada em
 
 Como funciona:
 
-- O navegador/Android fala apenas com o **Next.js** (`/api/ai/chat` e `/api/ai/history`). O modelo e a `VELO_IA_API_KEY` ficam no servidor.
-- O Next.js aplica rate limit (**15 mensagens/10 min por pessoa** e **40/10 min por IP**), valida o JSON com Zod, limita o corpo a **32 KB** e repassa para o FastAPI.
-- A identidade da conversa é derivada no servidor: `user_<uuid>` para quem está autenticado no Supabase; cookie **HttpOnly** `velo_ia_session` para visitantes.
-- O FastAPI guarda até **200 mensagens** por conversa em SQLite e envia as **últimas 15** ao modelo junto com a nova pergunta. Assim a velo ia lembra do contexto recente.
-- O prompt proíbe diagnósticos e orienta ajuda profissional em crise. Há também uma camada determinística: mensagens com sinais de risco recebem uma resposta fixa com **CVV 188**, **SAMU 192** e **190**.
-- Sem `VELO_IA_API_URL`/`VELO_IA_API_KEY`, a tela abre em estado offline e o resto do velo continua funcionando.
+- O navegador/Android fala apenas com o **Next.js** (`/api/ai/chat` e `/api/ai/history`). A chave do modelo fica no servidor.
+- O Next.js aplica rate limit (**15 mensagens/10 min por pessoa** e **40/10 min por IP**), valida o JSON com Zod e limita o corpo a **32 KB**.
+- **Backends:** se `VELO_IA_API_URL` estiver configurada, o FastAPI tem prioridade e guarda até **200 mensagens** por conversa em SQLite, enviando as **últimas 15** ao modelo. Sem ele, o app usa a **Groq** (`GROQ_API_KEY`, plano gratuito) e o histórico fica no `localStorage` do navegador, com as **últimas 10** mensagens indo como contexto.
+- A identidade da conversa é derivada no servidor: `user_<uuid>` para quem está autenticado no Supabase; cookie **HttpOnly** `velo_ia_session` para visitantes. No caminho Groq, essa identidade gera uma chave de `localStorage` isolada por conta/dispositivo.
+- O prompt proíbe diagnósticos e orienta ajuda profissional em crise. Há também uma camada determinística: mensagens com sinais de risco recebem uma resposta fixa com **CVV 188**, **SAMU 192** e **190**, sem passar pelo modelo.
+- Sem `GROQ_API_KEY` nem `VELO_IA_API_URL`/`VELO_IA_API_KEY`, a tela abre em estado offline e o resto do velo continua funcionando.
+
+Para ativar a versão gratuita na Vercel:
+
+```bash
+npx vercel env add GROQ_API_KEY --environment production --value "gsk_..." --yes
+npx vercel deploy --prod --yes
+```
+
+Opcional: `GROQ_MODEL=openai/gpt-oss-20b` (padrão). O plano gratuito da Groq tem cerca de **30 requisições/min** e **1.000/dia** por modelo; ao estourar, a rota responde 429 e a tela pede para esperar.
 
 O serviço Python, o treino LoRA e o dataset ficam em [`ai/`](ai/README.md). Para desenvolver a interface sem GPU:
 
@@ -249,7 +258,7 @@ VELO_IA_API_URL=http://127.0.0.1:8000
 VELO_IA_API_KEY=o-mesmo-segredo-de-ai/.env
 ```
 
-O treinamento e o deploy do FastAPI estão detalhados em [`ai/README.md`](ai/README.md). A IA **não roda na Vercel**: ela precisa de um serviço Python separado (GPU recomendada) com HTTPS e disco persistente para o SQLite.
+O treinamento e o deploy do FastAPI estão detalhados em [`ai/README.md`](ai/README.md). A IA **não roda na Vercel** quando usa o FastAPI: ele precisa de um serviço Python separado (GPU recomendada) com HTTPS e disco persistente para o SQLite. O caminho Groq roda dentro das próprias rotas do Next.js, sem serviço extra.
 
 ### Atualizações
 
@@ -298,9 +307,10 @@ Somente preferências de interface ficam no navegador:
 
 - `velo:audio:v1` — volume e mudo.
 - `velo:stories-seen:v1` — stories já vistos.
+- `velo-ia:history:<hash>` — últimas 40 mensagens da velo ia no caminho Groq (ou espelho do histórico do FastAPI).
 - cookie HttpOnly `velo_ia_session` — identifica a conversa anônima com a velo ia.
 
-Todo o conteúdo (perfis, posts, comentários, likes, salvos, follows e stories) existe apenas no Supabase. O histórico da velo ia fica no SQLite do serviço Python (`ai/velo_ia_memory.db`), nunca no navegador.
+Todo o conteúdo (perfis, posts, comentários, likes, salvos, follows e stories) existe apenas no Supabase. No backend FastAPI, o histórico da velo ia fica no SQLite do serviço Python (`ai/velo_ia_memory.db`). No backend Groq, ele fica no `localStorage` do próprio navegador, separado por conta/dispositivo.
 
 ---
 
@@ -316,7 +326,7 @@ O que já está no projeto:
 - Limites de texto no banco e no cliente (caption, bio, tags, comentários).
 - **Login e cadastro server-side**: as rotas `POST /api/auth/login` e `POST /api/auth/signup` validam o JSON com Zod, recusam bodies acima de 8 KB, checam o header `Origin` contra o próprio site e respondem com `Cache-Control: private, no-store`.
 - **Rate limiting**: 30 tentativas por IP e 8 por conta a cada 10 minutos no login; 5 cadastros por IP e 3 por e-mail por hora. O contador é em memória por instância — em produção multi-instância, troque por Redis/Upstash ou uma tabela no Supabase. O Supabase Auth também aplica limites próprios.
-- **velo ia server-side**: o navegador nunca recebe `VELO_IA_API_KEY` nem a URL interna do FastAPI. As rotas `/api/ai/*` checam `Origin`, resolvem a identidade no Supabase (ou cookie HttpOnly anônimo), aplicam rate limit por pessoa/IP, validam a mensagem com Zod, limitam o corpo a 32 KB e só então chamam o serviço Python. Mensagens com sinais de risco recebem uma resposta fixa de acolhimento com CVV 188, SAMU 192 e 190.
+- **velo ia server-side**: o navegador nunca recebe `GROQ_API_KEY`, `VELO_IA_API_KEY` nem a URL interna do FastAPI. As rotas `/api/ai/*` checam `Origin`, resolvem a identidade no Supabase (ou cookie HttpOnly anônimo), aplicam rate limit por pessoa/IP, validam a mensagem com Zod, limitam o corpo a 32 KB e só então chamam a Groq ou o serviço Python. Mensagens com sinais de risco recebem uma resposta fixa de acolhimento com CVV 188, SAMU 192 e 190.
 - **E-mail normalizado** (NFKC + trim + lowercase) no formulário, na API e no schema Zod. A senha é preservada exatamente como digitada, sem trim: espaços e maiúsculas fazem parte dela. O login não exige mais o mínimo de 8 caracteres do cadastro, então contas antigas com senhas curtas continuam entrando.
 - **Fallback de perfil**: se a sessão autenticou mas a leitura de `profiles` falhou, o login continua válido com um perfil mínimo vindo dos metadados do Auth, em vez de mostrar “senha incorreta”.
 - **Sanitização central** em `src/lib/sanitize.ts`: normaliza Unicode, remove caracteres de controle, zero-width e bidirecionais. Links de perfil só são renderizados se passarem por `safeExternalUrl` (apenas `http:`/`https:`).
@@ -440,7 +450,15 @@ npx vercel env add NEXT_PUBLIC_SUPABASE_ANON_KEY --environment production,previe
 npx vercel deploy --prod --yes
 ```
 
-Se a velo ia já estiver hospedada, adicione também (a URL precisa ser HTTPS em produção):
+Para ativar a velo ia grátis (Groq), adicione a chave em Production:
+
+```bash
+npx vercel env add GROQ_API_KEY --environment production --value "gsk_..." --yes
+# opcional: trocar o modelo (padrão openai/gpt-oss-20b)
+npx vercel env add GROQ_MODEL --environment production --value "openai/gpt-oss-20b" --yes
+```
+
+Se você hospedar o FastAPI, ele tem prioridade sobre a Groq (a URL precisa ser HTTPS em produção):
 
 ```bash
 npx vercel env add VELO_IA_API_URL --environment production --value "https://sua-api-velo-ia.com" --yes
@@ -480,7 +498,7 @@ O `.gitignore` já ignora `.env.local`, `.next`, `node_modules`, `.vercel`, keys
 4. Em **Environment Variables**, adicione as duas variáveis em **Production**, **Preview** e **Development**:
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-5. Se a velo ia estiver hospedada, adicione `VELO_IA_API_URL`, `VELO_IA_API_KEY`, `VELO_IA_HF_TOKEN` e `VELO_IA_TIMEOUT_MS` em **Production**. O `VELO_IA_MOCK=1` existe só como fallback de demonstração e não deve ser usado em produção.
+5. Para a velo ia, adicione `GROQ_API_KEY` em **Production** (grátis) ou, se hospedar o FastAPI, `VELO_IA_API_URL`, `VELO_IA_API_KEY`, `VELO_IA_HF_TOKEN` e `VELO_IA_TIMEOUT_MS`. O `VELO_IA_MOCK=1` existe só como fallback de demonstração e não deve ser usado em produção.
 6. Clique em **Deploy**.
 
 > `NEXT_PUBLIC_*` é embutido no bundle durante o build. Se trocar a URL ou a chave, faça um novo deploy (não basta reiniciar a função).
@@ -557,7 +575,7 @@ A indexação não é imediata: o Google precisa rastrear, processar e escolher 
 - O rate limit de login/cadastro é em memória e por instância. Em produção com várias funções, troque por Redis/Upstash ou uma tabela no Supabase.
 - A CSP mantém `'unsafe-inline'` para os scripts inline do Next.js. Migrar para nonce/hash é o próximo passo de endurecimento.
 - O APK precisa de JDK 21 e Android SDK 36 para compilar; o projeto está pronto, mas a compilação não roda só com Node.js.
-- A velo ia não roda na Vercel: o FastAPI com o modelo precisa de um serviço separado (GPU recomendada) e disco persistente para o SQLite. Sem essa API configurada, `/chat` mostra estado offline.
+- No backend Groq, a velo ia roda dentro da Vercel, mas o histórico fica no `localStorage` do navegador (limite de 40 mensagens, 10 como contexto). No backend FastAPI, ela precisa de um serviço Python separado (GPU recomendada) e disco persistente para o SQLite. Sem `GROQ_API_KEY` nem essa API configurada, `/chat` mostra estado offline.
 - O dataset de exemplo tem apenas 10 diálogos. Ele valida o pipeline de treino, mas não é suficiente para uma amiga virtual de produção; amplie o dataset e faça avaliação humana antes de publicar.
 - O rate limit da velo ia também é em memória por instância do Next.js. Em produção com várias funções, use Redis/Upstash ou uma tabela no Supabase.
 - `npm audit` reporta 7 vulnerabilidades moderadas de desenvolvimento no `minimatch` usado pelo ESLint/TypeScript ESLint. Não há versão corrigida publicada e o pacote não vai para o bundle de produção.

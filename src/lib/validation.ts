@@ -90,6 +90,14 @@ export const commentSchema = z.object({
   ),
 });
 
+const aiHistoryEntrySchema = z.object({
+  role: z.enum(["user", "assistant"]),
+  content: z
+    .string()
+    .transform((value) => sanitizeText(value, { multiline: true }))
+    .pipe(z.string().min(1).max(2000)),
+});
+
 export const aiChatSchema = z.object({
   message: textSchema(
     1,
@@ -100,6 +108,9 @@ export const aiChatSchema = z.object({
     },
     true,
   ),
+  // O backend Groq não tem banco: o cliente manda as últimas mensagens para
+  // dar contexto. O servidor sanitiza de novo e limita a 10 no adaptador.
+  history: z.array(aiHistoryEntrySchema).max(10).optional().catch(undefined),
 });
 
 export type AiChatValues = z.infer<typeof aiChatSchema>;

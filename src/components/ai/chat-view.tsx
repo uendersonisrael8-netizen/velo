@@ -24,6 +24,8 @@ type OfflineReason = "not_configured" | "unreachable";
 type HistoryResponse = {
   ok?: boolean;
   configured?: boolean;
+  storage?: "local" | "server";
+  storageKey?: string;
   messages?: unknown;
   error?: string;
 };
@@ -40,6 +42,46 @@ const SUGGESTIONS = [
   "me ajuda a escolher um vídeo",
   "só quero conversar um pouco",
 ];
+
+const HISTORY_STORAGE_PREFIX = "velo-ia:history:";
+const HISTORY_CONTEXT_LIMIT = 10;
+const HISTORY_STORAGE_LIMIT = 40;
+
+function readLocalHistory(storageKey: string): VeloIaMessage[] {
+  try {
+    const raw = window.localStorage.getItem(
+      HISTORY_STORAGE_PREFIX + storageKey,
+    );
+    if (!raw) return [];
+    return mapHistoryMessages(JSON.parse(raw));
+  } catch {
+    return [];
+  }
+}
+
+function writeLocalHistory(storageKey: string, messages: VeloIaMessage[]) {
+  try {
+    const payload = messages.slice(-HISTORY_STORAGE_LIMIT).map((message) => ({
+      role: message.role,
+      content: message.content,
+      created_at: message.createdAt,
+    }));
+    window.localStorage.setItem(
+      HISTORY_STORAGE_PREFIX + storageKey,
+      JSON.stringify(payload),
+    );
+  } catch {
+    // Modo privado ou cota cheia: a conversa continua só na memória da página.
+  }
+}
+
+function clearLocalHistory(storageKey: string) {
+  try {
+    window.localStorage.removeItem(HISTORY_STORAGE_PREFIX + storageKey);
+  } catch {
+    // Sem acesso ao localStorage, não há o que limpar.
+  }
+}
 
 function formatTime(value?: string) {
   if (!value) return "";
@@ -158,8 +200,8 @@ function OfflineNotice({
         </p>
         <p className="mt-1 text-[12px] leading-relaxed text-muted">
           {reason === "not_configured"
-            ? "O servidor de IA precisa ser configurado com VELO_IA_API_URL e VELO_IA_API_KEY. Enquanto isso, a tela fica pronta para quando a API estiver no ar."
-            : "Pode ser uma oscilação momentânea. Tente de novo em instantes — sua conversa continua salva quando a API voltar."}
+            ? "O servidor de IA ainda não foi configurado. Adicione GROQ_API_KEY na Vercel (ou VELO_IA_API_URL e VELO_IA_API_KEY) para ativar a velo ia."
+            : "Pode ser uma oscilação momentânea. Tente de novo em instantes — as mensagens já enviadas continuam salvas neste navegador."}
         </p>
       </div>
       <button
@@ -186,9 +228,20 @@ export function ChatView() {
   const [confirmClear, setConfirmClear] = useState(false);
   const [mock, setMock] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [storageKey, setStorageKey] = useState<string | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const messagesRef = useRef<VeloIaMessage[]>([]);
+
+  const applyMessages = useCallback(
+    (next: VeloIaMessage[], key: string | null) => {
+      messagesRef.current = next;
+      setMessages(next);
+      if (key) writeLocalHistory(key, next);
+    },
+    [],
+  );
 
   const loadHistory = useCallback(async () => {
     try {
@@ -209,7 +262,23 @@ export function ChatView() {
         return;
       }
 
-      setMessages(mapHistoryMessages(data.messages));
+      const nextStorageKey =
+        typeof data.storageKey === "string" && data.storageKey
+          ? data.storageKey
+          : null;
+      setStorageKey(nextStorageKey);
+
+      if (data.storage === "local") {
+        // Groq: o servidor não guarda nada; o navegador é a fonte da verdade.
+        applyMessages(
+          nextStorageKey ? readLocalHistory(nextStorageKey) : [],
+          null,
+        );
+      } else {
+        // FastAPI: o servidor guarda a conversa e o localStorage serve de
+        // espelho para não perder o contexto se o backend trocar.
+        applyMessages(mapHistoryMessages(data.messages), nextStorageKey);
+      }
       setStatus("ready");
     } catch {
       // O card de offline já explica a falha e oferece "Tentar de novo";
@@ -217,7 +286,7 @@ export function ChatView() {
       setOfflineReason("unreachable");
       setStatus("offline");
     }
-  }, []);
+  }, [applyMessages]);
 
   /* eslint-disable react-hooks/set-state-in-effect -- carrega o histórico do servidor uma vez no mount; os setState acontecem depois do fetch assíncrono */
   useEffect(() => {
@@ -272,6 +341,11 @@ export function ChatView() {
     if (!text || sending || status !== "ready") return;
 
     setError(null);
+    // O contexto vai sem a mensagem atual: o servidor acrescenta ela depois.
+    const history = messagesRef.current
+      .slice(-HISTORY_CONTEXT_LIMIT)
+      .map((message) => ({ role: message.role, content: message.content }));
+
     const optimistic: VeloIaMessage = {
       id: createId("msg"),
       role: "user",
@@ -279,7 +353,7 @@ export function ChatView() {
       createdAt: new Date().toISOString(),
     };
 
-    setMessages((current) => [...current, optimistic]);
+    applyMessages([...messagesRef.current, optimistic], null);
     setInput("");
     setSending(true);
 
@@ -287,7 +361,7 @@ export function ChatView() {
       const response = await fetch("/api/ai/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text }),
+        body: JSON.stringify({ message: text, history }),
       });
       const data = (await response
         .json()
@@ -300,20 +374,19 @@ export function ChatView() {
       }
 
       setMock(Boolean(data.mock));
-      setMessages((current) => [
-        ...current,
-        {
-          id: createId("msg"),
-          role: "assistant",
-          content: data.reply as string,
-          createdAt: new Date().toISOString(),
-        },
-      ]);
+      const assistantMessage: VeloIaMessage = {
+        id: createId("msg"),
+        role: "assistant",
+        content: data.reply as string,
+        createdAt: new Date().toISOString(),
+      };
+      applyMessages([...messagesRef.current, assistantMessage], storageKey);
     } catch (sendError) {
       // A mensagem otimista sai da tela e volta para o campo, para a pessoa
       // tentar de novo sem perder o texto.
-      setMessages((current) =>
-        current.filter((message) => message.id !== optimistic.id),
+      applyMessages(
+        messagesRef.current.filter((message) => message.id !== optimistic.id),
+        null,
       );
       setInput(text);
       const message =
@@ -325,7 +398,7 @@ export function ChatView() {
     } finally {
       setSending(false);
     }
-  }, [input, sending, status, toast]);
+  }, [applyMessages, input, sending, status, storageKey, toast]);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -356,7 +429,8 @@ export function ChatView() {
         throw new Error(data?.error ?? "Não consegui limpar a conversa.");
       }
 
-      setMessages([]);
+      if (storageKey) clearLocalHistory(storageKey);
+      applyMessages([], null);
       setError(null);
       setConfirmClear(false);
       toast("Conversa limpa. Podemos começar de novo.");
@@ -370,7 +444,7 @@ export function ChatView() {
     } finally {
       setClearing(false);
     }
-  }, [clearing, toast]);
+  }, [applyMessages, clearing, storageKey, toast]);
 
   const canSend = status === "ready" && !sending && input.trim().length > 0;
   const statusLabel =
