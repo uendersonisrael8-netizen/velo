@@ -240,6 +240,7 @@ Como funciona:
 - O Next.js aplica rate limit (**15 mensagens/10 min por pessoa** e **40/10 min por IP** no chat; **30 correções/10 min por pessoa** e **80/10 min por IP** na revisão), valida o JSON com Zod e limita o corpo a **4,5 MB** no chat (por causa da imagem) e **8 KB** na correção.
 - **Backends:** se `VELO_IA_API_URL` estiver configurada, o FastAPI tem prioridade no texto e guarda até **200 mensagens** por conversa em SQLite, enviando as **últimas 15** ao modelo. Sem ele, o app usa a **Groq** (`GROQ_API_KEY`, plano gratuito) e o histórico fica no `localStorage` do navegador, com as **últimas 10** mensagens indo como contexto.
 - A identidade da conversa é derivada no servidor: `user_<uuid>` para quem está autenticado no Supabase; cookie **HttpOnly** `velo_ia_session` para visitantes. No caminho Groq, essa identidade gera uma chave de `localStorage` isolada por conta/dispositivo.
+- **Identidade:** a velo ia se apresenta com orgulho como criação de **Uenderson**, fundador da **Velo**, uma empresa pequena e independente. O prompt proíbe atribuir sua criação à OpenAI, Google, Meta, Anthropic, Groq, Alibaba, Microsoft, DeepSeek ou qualquer outra empresa.
 - O prompt proíbe diagnósticos e orienta ajuda profissional em crise. Há também uma camada determinística: mensagens com sinais de risco recebem uma resposta fixa com **CVV 188**, **SAMU 192** e **190**, sem passar pelo modelo.
 - Sem `GROQ_API_KEY` nem `VELO_IA_API_URL`/`VELO_IA_API_KEY`, a tela abre em estado offline e o resto do velo continua funcionando.
 
