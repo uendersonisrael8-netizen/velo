@@ -69,7 +69,9 @@ export async function POST(request: NextRequest) {
 
   let body: unknown;
   try {
-    body = await readJsonBody(request, { maxBytes: 32 * 1024 });
+    // O chat aceita uma imagem comprimida (~2 MB). Base64 cresce ~33%, então
+    // 4,5 MB cobre a foto e o histórico sem passar do limite da Vercel.
+    body = await readJsonBody(request, { maxBytes: 4_500_000 });
   } catch (error) {
     return respond(
       authError(
@@ -91,9 +93,10 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // O FastAPI self-hosted continua tendo prioridade. Sem ele, o Groq assume
-  // como backend gratuito. Nunca chamamos os dois na mesma requisição.
-  const useFastApi = isVeloIaConfigured();
+  // O FastAPI self-hosted continua tendo prioridade no texto. Imagem só existe
+  // no adaptador Groq, então uma foto sempre usa a Groq (se configurada).
+  const hasImage = Boolean(parsed.data.image);
+  const useFastApi = isVeloIaConfigured() && !hasImage;
   const useGroq = !useFastApi && isGroqConfigured();
 
   if (!useFastApi && !useGroq) {
@@ -115,7 +118,9 @@ export async function POST(request: NextRequest) {
 
     return respond(
       authError(
-        "A velo ia ainda não está conectada neste ambiente. Configure GROQ_API_KEY (recomendado) ou VELO_IA_API_URL e VELO_IA_API_KEY.",
+        hasImage
+          ? "O envio de imagens precisa da Groq configurada (GROQ_API_KEY)."
+          : "A velo ia ainda não está conectada neste ambiente. Configure GROQ_API_KEY (recomendado) ou VELO_IA_API_URL e VELO_IA_API_KEY.",
         503,
         rateLimitHeaders(identityLimit),
       ),
@@ -131,6 +136,7 @@ export async function POST(request: NextRequest) {
       : await groqChat({
           message: parsed.data.message,
           history: parsed.data.history,
+          image: parsed.data.image,
         });
 
     if (!result || typeof result.reply !== "string" || !result.reply.trim()) {
@@ -177,6 +183,15 @@ export async function POST(request: NextRequest) {
     }
 
     if (error instanceof VeloIaRequestError) {
+      if (error.status === 400 || error.status === 413) {
+        return respond(
+          authError(
+            error.message,
+            error.status,
+            rateLimitHeaders(identityLimit),
+          ),
+        );
+      }
       if (error.status === 429) {
         return respond(
           authError(

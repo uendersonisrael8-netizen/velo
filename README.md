@@ -168,8 +168,9 @@ O `src/proxy.ts` roda em todas as rotas, mas só exige sessão nas privadas (`/u
 | `/profile` | Perfil editável, estatísticas, abas de publicações e guardados |
 | `/saved` | Coleção pessoal de posts salvos |
 | `/direct` | Conversas privadas, busca de pessoas, não lidas e posts compartilhados |
-| `/chat` | Conversa privada com a velo ia (histórico, “digitando…”, limpar conversa) |
-| `POST /api/ai/chat` | Proxy autenticado para o FastAPI: rate limit, Zod, identidade e segredo |
+| `/chat` | Conversa privada com a velo ia (histórico, “digitando…”, corrigir texto, fotos e limpar conversa) |
+| `POST /api/ai/chat` | Proxy autenticado para a Groq/FastAPI: rate limit, Zod, identidade, texto e imagem |
+| `POST /api/ai/rewrite` | Correção de ortografia e gramática antes de enviar, com rate limit próprio |
 | `GET/DELETE /api/ai/history` | Histórico e limpeza da conversa da velo ia |
 | `/u/[handle]` | Perfil público com follow |
 
@@ -225,11 +226,19 @@ Rotas abertas: `/`, `/explore`, `/chat`, `/u/[handle]`, `/login`, `/signup` e `/
 
 A **velo ia** é a amiga virtual do velo. A tela `/chat` tem conversa privada em balões, campo de texto com envio por Enter, indicador **“digitando…”**, sugestões iniciais, limpeza de conversa e estado offline amigável.
 
+Recursos de escrita e imagem:
+
+- **Corrigir texto**: o botão de corretor (ícone de verificação ortográfica) revisa a frase antes do envio, corrigindo ortografia, gramática, pontuação e concordância sem mudar tom, gírias, emojis ou quebras de linha. Se o texto já estiver correto, a tela avisa e não altera nada.
+- **Anexar foto**: o botão de imagem aceita JPG, PNG ou WebP. A foto é comprimida no próprio navegador (alvo de **2 MB**, até **1600 px**, JPEG com fundo branco para PNGs transparentes) e enviada junto da mensagem. A resposta usa o modelo de visão **`qwen/qwen3.8-27b`** da Groq, que descreve a cena, lê textos e responde no mesmo tom da conversa.
+- O servidor valida o data URL, o tamanho em bytes e a **assinatura real** do arquivo (JPEG/PNG/WebP) antes de chamar a Groq. Imagens acima de **3 MB** são recusadas com uma mensagem amigável.
+- Imagens **não são persistidas** no `localStorage`: depois de recarregar, a mensagem aparece só como o marcador `📷 imagem enviada`. As fotos antigas também não são reenviadas como contexto.
+- Mensagens com imagem sempre usam a Groq (o FastAPI continua tendo prioridade apenas no texto).
+
 Como funciona:
 
-- O navegador/Android fala apenas com o **Next.js** (`/api/ai/chat` e `/api/ai/history`). A chave do modelo fica no servidor.
-- O Next.js aplica rate limit (**15 mensagens/10 min por pessoa** e **40/10 min por IP**), valida o JSON com Zod e limita o corpo a **32 KB**.
-- **Backends:** se `VELO_IA_API_URL` estiver configurada, o FastAPI tem prioridade e guarda até **200 mensagens** por conversa em SQLite, enviando as **últimas 15** ao modelo. Sem ele, o app usa a **Groq** (`GROQ_API_KEY`, plano gratuito) e o histórico fica no `localStorage` do navegador, com as **últimas 10** mensagens indo como contexto.
+- O navegador/Android fala apenas com o **Next.js** (`/api/ai/chat`, `/api/ai/rewrite` e `/api/ai/history`). A chave do modelo fica no servidor.
+- O Next.js aplica rate limit (**15 mensagens/10 min por pessoa** e **40/10 min por IP** no chat; **30 correções/10 min por pessoa** e **80/10 min por IP** na revisão), valida o JSON com Zod e limita o corpo a **4,5 MB** no chat (por causa da imagem) e **8 KB** na correção.
+- **Backends:** se `VELO_IA_API_URL` estiver configurada, o FastAPI tem prioridade no texto e guarda até **200 mensagens** por conversa em SQLite, enviando as **últimas 15** ao modelo. Sem ele, o app usa a **Groq** (`GROQ_API_KEY`, plano gratuito) e o histórico fica no `localStorage` do navegador, com as **últimas 10** mensagens indo como contexto.
 - A identidade da conversa é derivada no servidor: `user_<uuid>` para quem está autenticado no Supabase; cookie **HttpOnly** `velo_ia_session` para visitantes. No caminho Groq, essa identidade gera uma chave de `localStorage` isolada por conta/dispositivo.
 - O prompt proíbe diagnósticos e orienta ajuda profissional em crise. Há também uma camada determinística: mensagens com sinais de risco recebem uma resposta fixa com **CVV 188**, **SAMU 192** e **190**, sem passar pelo modelo.
 - Sem `GROQ_API_KEY` nem `VELO_IA_API_URL`/`VELO_IA_API_KEY`, a tela abre em estado offline e o resto do velo continua funcionando.
@@ -241,7 +250,12 @@ npx vercel env add GROQ_API_KEY --environment production --value "gsk_..." --yes
 npx vercel deploy --prod --yes
 ```
 
-Opcional: `GROQ_MODEL=openai/gpt-oss-20b` (padrão). O plano gratuito da Groq tem cerca de **30 requisições/min** e **1.000/dia** por modelo; ao estourar, a rota responde 429 e a tela pede para esperar.
+Opcionais:
+
+- `GROQ_MODEL=openai/gpt-oss-20b` (padrão) para texto e correção.
+- `GROQ_VISION_MODEL=qwen/qwen3.8-27b` (padrão) para fotos. Os Llama 4 Scout/Maverick não estão disponíveis nesta conta da Groq (a API responde `404 model_not_found`).
+
+O plano gratuito da Groq tem cerca de **30 requisições/min** e **1.000/dia** por modelo; ao estourar, a rota responde 429 e a tela pede para esperar.
 
 O serviço Python, o treino LoRA e o dataset ficam em [`ai/`](ai/README.md). Para desenvolver a interface sem GPU:
 
@@ -274,7 +288,7 @@ src/
   app/
     (app)/            # feed, explore, upload, profile, saved, chat, u/[handle]
     (auth)/           # login e signup
-    api/ai/           # proxy server-side para a velo ia (chat e histórico)
+    api/ai/           # proxy server-side da velo ia (chat com visão, correção e histórico)
     api/auth/         # login e cadastro server-side (rate limit + Zod)
     auth/callback/    # troca do código PKCE (Google/e-mail) pela sessão
   components/
@@ -326,7 +340,7 @@ O que já está no projeto:
 - Limites de texto no banco e no cliente (caption, bio, tags, comentários).
 - **Login e cadastro server-side**: as rotas `POST /api/auth/login` e `POST /api/auth/signup` validam o JSON com Zod, recusam bodies acima de 8 KB, checam o header `Origin` contra o próprio site e respondem com `Cache-Control: private, no-store`.
 - **Rate limiting**: 30 tentativas por IP e 8 por conta a cada 10 minutos no login; 5 cadastros por IP e 3 por e-mail por hora. O contador é em memória por instância — em produção multi-instância, troque por Redis/Upstash ou uma tabela no Supabase. O Supabase Auth também aplica limites próprios.
-- **velo ia server-side**: o navegador nunca recebe `GROQ_API_KEY`, `VELO_IA_API_KEY` nem a URL interna do FastAPI. As rotas `/api/ai/*` checam `Origin`, resolvem a identidade no Supabase (ou cookie HttpOnly anônimo), aplicam rate limit por pessoa/IP, validam a mensagem com Zod, limitam o corpo a 32 KB e só então chamam a Groq ou o serviço Python. Mensagens com sinais de risco recebem uma resposta fixa de acolhimento com CVV 188, SAMU 192 e 190.
+- **velo ia server-side**: o navegador nunca recebe `GROQ_API_KEY`, `VELO_IA_API_KEY` nem a URL interna do FastAPI. As rotas `/api/ai/*` checam `Origin`, resolvem a identidade no Supabase (ou cookie HttpOnly anônimo), aplicam rate limit por pessoa/IP, validam a mensagem com Zod, limitam o corpo (4,5 MB no chat com imagem, 8 KB na correção) e só então chamam a Groq ou o serviço Python. Imagens são conferidas por tamanho e assinatura binária antes de sair do servidor, e o tipo declarado no data URL não é suficiente. Mensagens com sinais de risco recebem uma resposta fixa de acolhimento com CVV 188, SAMU 192 e 190.
 - **E-mail normalizado** (NFKC + trim + lowercase) no formulário, na API e no schema Zod. A senha é preservada exatamente como digitada, sem trim: espaços e maiúsculas fazem parte dela. O login não exige mais o mínimo de 8 caracteres do cadastro, então contas antigas com senhas curtas continuam entrando.
 - **Fallback de perfil**: se a sessão autenticou mas a leitura de `profiles` falhou, o login continua válido com um perfil mínimo vindo dos metadados do Auth, em vez de mostrar “senha incorreta”.
 - **Sanitização central** em `src/lib/sanitize.ts`: normaliza Unicode, remove caracteres de controle, zero-width e bidirecionais. Links de perfil só são renderizados se passarem por `safeExternalUrl` (apenas `http:`/`https:`).

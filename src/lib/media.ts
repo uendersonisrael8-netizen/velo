@@ -182,6 +182,7 @@ export function compressImageFile(
   file: File,
   maxDimension = 512,
   quality = 0.85,
+  background?: string,
 ): Promise<Blob> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
@@ -202,6 +203,12 @@ export function compressImageFile(
           cleanup();
           reject(new Error("Não conseguimos processar essa imagem."));
           return;
+        }
+        // JPEG não tem transparência: sem uma base, PNGs transparentes viram
+        // preto. O chat usa branco para manter a foto legível.
+        if (background) {
+          context.fillStyle = background;
+          context.fillRect(0, 0, width, height);
         }
         context.drawImage(image, 0, 0, width, height);
         canvas.toBlob(

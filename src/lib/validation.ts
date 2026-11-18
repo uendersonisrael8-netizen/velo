@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { VELO_IA_IMAGE_MAX_DATA_URL_LENGTH } from "@/lib/ai/constants";
 import { normalizeEmail, sanitizeText } from "@/lib/sanitize";
 import { normalizeHandle, normalizeTag } from "@/lib/utils";
 
@@ -111,6 +112,28 @@ export const aiChatSchema = z.object({
   // O backend Groq não tem banco: o cliente manda as últimas mensagens para
   // dar contexto. O servidor sanitiza de novo e limita a 10 no adaptador.
   history: z.array(aiHistoryEntrySchema).max(10).optional().catch(undefined),
+  // Imagem opcional em data URL. O adaptador confere os bytes e a assinatura
+  // real do arquivo antes de mandar para a Groq.
+  image: z
+    .string()
+    .max(VELO_IA_IMAGE_MAX_DATA_URL_LENGTH, "A imagem é muito grande.")
+    .regex(
+      /^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/,
+      "Envie uma imagem JPG, PNG ou WebP.",
+    )
+    .optional(),
+});
+
+export const aiRewriteSchema = z.object({
+  text: textSchema(
+    1,
+    2000,
+    {
+      min: "Escreva uma frase para corrigir.",
+      max: "Textos podem ter até 2000 caracteres.",
+    },
+    true,
+  ),
 });
 
 export type AiChatValues = z.infer<typeof aiChatSchema>;

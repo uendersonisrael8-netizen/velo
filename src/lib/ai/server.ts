@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { VELO_IA_IMAGE_MAX_BYTES } from "@/lib/ai/constants";
 import { createSupabaseServerClient, isSupabaseServerConfigured } from "@/lib/supabase/server";
 
 const CONFIGURED_URL = process.env.VELO_IA_API_URL?.trim().replace(/\/+$/, "");
@@ -16,6 +17,8 @@ const MOCK_ENABLED = ["1", "true", "yes", "on", "sim"].includes(
 const GROQ_API_KEY = process.env.GROQ_API_KEY?.trim();
 const GROQ_MODEL =
   process.env.GROQ_MODEL?.trim() || "openai/gpt-oss-20b";
+const GROQ_VISION_MODEL =
+  process.env.GROQ_VISION_MODEL?.trim() || "qwen/qwen3.8-27b";
 const GROQ_BASE_URL = (
   process.env.GROQ_BASE_URL?.trim() || "https://api.groq.com/openai/v1"
 ).replace(/\/+$/, "");
@@ -62,6 +65,31 @@ export type VeloIaChatResult = {
 export type VeloIaChatMessage = {
   role: "user" | "assistant";
   content: string;
+};
+
+export type VeloIaImage = {
+  dataUrl: string;
+  mimeType: "image/jpeg" | "image/png" | "image/webp";
+  bytes: number;
+};
+
+type GroqContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+
+type GroqMessage = {
+  role: "system" | "user" | "assistant";
+  content: string | GroqContentPart[];
+};
+
+type GroqCallOptions = {
+  model: string;
+  messages: GroqMessage[];
+  temperature?: number;
+  topP?: number;
+  maxCompletionTokens: number;
+  reasoningEffort?: "low" | "none";
+  includeReasoning?: boolean;
 };
 
 export type VeloIaHistoryMessage = {
@@ -122,6 +150,20 @@ Limites importantes:
 
 Você tem memória das últimas mensagens desta conversa. Use esse contexto para lembrar do que a pessoa contou, sem repetir tudo de volta. Se a conversa estiver confusa, peça gentilmente para a pessoa esclarecer. Seu nome é sempre "velo ia".`;
 
+const GROQ_VISION_PROMPT = `${GROQ_SYSTEM_PROMPT}
+
+Sobre imagens:
+- A foto está anexada nesta mensagem e você consegue vê-la. Olhe para ela antes de responder.
+- Comece descrevendo o que aparece na imagem. Se houver texto visível, transcreva literalmente quando a pessoa pedir ou quando isso ajudar a responder.
+- Descreva apenas o que está realmente visível. Não invente detalhes, não identifique pessoas reais e não deduza informações sensíveis (saúde, religião, orientação sexual, localização exata).
+- Se a imagem estiver ambígua ou não for possível analisar, diga o que consegue ver e peça outra foto.
+- Continue respondendo em português brasileiro, com o mesmo tom de amiga.`;
+
+const GROQ_VISION_RETRY_PROMPT =
+  "Você é a velo ia. A imagem está anexada nesta mensagem e você consegue vê-la. Analise a foto e responda em português brasileiro, com um tom de amiga. Se houver texto, transcreva literalmente. Nunca diga que não consegue ver imagens.";
+
+const GROQ_REWRITE_PROMPT = `Você é um revisor de português brasileiro. Corrija somente ortografia, gramática, pontuação, concordância e clareza da frase, sem mudar o tom, as gírias, os emojis, as quebras de linha nem o sentido original. Não responda à mensagem, não comente, não dê explicações e não use markdown. Devolva apenas o texto corrigido, sem aspas em volta. Se a frase já estiver correta, devolva exatamente como está.`;
+
 const CRISIS_TERMS = [
   "suicid",
   "me matar",
@@ -169,6 +211,85 @@ function sanitizeGroqHistory(value: unknown): VeloIaChatMessage[] {
     if (history.length >= 10) break;
   }
   return history;
+}
+
+const IMAGE_DATA_URL_RE =
+  /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/i;
+
+function detectImageMime(
+  buffer: Buffer,
+): VeloIaImage["mimeType"] | null {
+  if (
+    buffer.length >= 3 &&
+    buffer[0] === 0xff &&
+    buffer[1] === 0xd8 &&
+    buffer[2] === 0xff
+  ) {
+    return "image/jpeg";
+  }
+  if (
+    buffer.length >= 8 &&
+    buffer[0] === 0x89 &&
+    buffer[1] === 0x50 &&
+    buffer[2] === 0x4e &&
+    buffer[3] === 0x47 &&
+    buffer[4] === 0x0d &&
+    buffer[5] === 0x0a &&
+    buffer[6] === 0x1a &&
+    buffer[7] === 0x0a
+  ) {
+    return "image/png";
+  }
+  if (
+    buffer.length >= 12 &&
+    buffer.toString("ascii", 0, 4) === "RIFF" &&
+    buffer.toString("ascii", 8, 12) === "WEBP"
+  ) {
+    return "image/webp";
+  }
+  return null;
+}
+
+/**
+ * Valida a imagem antes de gastar cota da Groq. O tipo declarado no data URL
+ * não basta: conferimos a assinatura real dos bytes e normalizamos o MIME.
+ */
+export function parseVeloIaImage(value: unknown): VeloIaImage | null {
+  if (value == null || value === "") return null;
+  if (typeof value !== "string") {
+    throw new VeloIaRequestError("Envie uma imagem JPG, PNG ou WebP.", 400);
+  }
+
+  const match = IMAGE_DATA_URL_RE.exec(value.trim());
+  if (!match) {
+    throw new VeloIaRequestError("Envie uma imagem JPG, PNG ou WebP.", 400);
+  }
+
+  const base64 = match[2];
+  const buffer = Buffer.from(base64, "base64");
+  if (!buffer.byteLength) {
+    throw new VeloIaRequestError("A imagem enviada está vazia.", 400);
+  }
+  if (buffer.byteLength > VELO_IA_IMAGE_MAX_BYTES) {
+    throw new VeloIaRequestError(
+      "A imagem é muito grande. Envie uma foto de até 3 MB.",
+      413,
+    );
+  }
+
+  const mimeType = detectImageMime(buffer);
+  if (!mimeType) {
+    throw new VeloIaRequestError(
+      "O arquivo enviado não é uma imagem válida.",
+      400,
+    );
+  }
+
+  return {
+    dataUrl: `data:${mimeType};base64,${base64}`,
+    mimeType,
+    bytes: buffer.byteLength,
+  };
 }
 
 const MOCK_REPLIES = [
@@ -371,24 +492,12 @@ export function veloIaClearHistory(conversationId: string) {
 }
 
 /**
- * Resposta via Groq (OpenAI-compatible). O histórico vem do cliente, porque o
- * backend gratuito não tem banco: o chat-view guarda as últimas mensagens no
- * localStorage e envia junto. O servidor não confia no formato e sanitiza tudo.
+ * Chamada única à API OpenAI-compatible da Groq. Centraliza timeout, erros e
+ * parsing para o chat de texto, a visão e a correção gramatical.
  */
-export async function groqChat(input: {
-  message: string;
-  history?: unknown;
-}): Promise<VeloIaChatResult> {
-  const message = input.message.trim();
-  if (!message) {
-    throw new VeloIaRequestError("Mensagem vazia.", 400);
-  }
-
-  // A camada determinística de segurança não depende do modelo.
-  if (containsCrisisLanguage(message)) {
-    return { reply: CRISIS_REPLY, model: "crisis", mock: false };
-  }
-
+async function callGroq(
+  options: GroqCallOptions,
+): Promise<{ reply: string; model: string }> {
   if (!GROQ_API_KEY) {
     throw new VeloIaRequestError(
       "A velo ia ainda não está conectada neste ambiente.",
@@ -396,9 +505,6 @@ export async function groqChat(input: {
     );
   }
 
-  const history = sanitizeGroqHistory(input.history);
-  const isGptOss = GROQ_MODEL.startsWith("openai/gpt-oss");
-  const isQwen = GROQ_MODEL.startsWith("qwen/");
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
@@ -413,21 +519,21 @@ export async function groqChat(input: {
         Authorization: `Bearer ${GROQ_API_KEY}`,
       },
       body: JSON.stringify({
-        model: GROQ_MODEL,
-        messages: [
-          { role: "system", content: GROQ_SYSTEM_PROMPT },
-          ...history,
-          { role: "user", content: message },
-        ],
-        temperature: 0.7,
-        top_p: 0.95,
-        max_completion_tokens: 800,
+        model: options.model,
+        messages: options.messages,
+        max_completion_tokens: options.maxCompletionTokens,
+        ...(options.temperature !== undefined
+          ? { temperature: options.temperature }
+          : {}),
+        ...(options.topP !== undefined ? { top_p: options.topP } : {}),
         // GPT-OSS e Qwen têm parâmetros de reasoning diferentes; mandar o
         // campo errado para o modelo errado resulta em 400.
-        ...(isGptOss
-          ? { reasoning_effort: "low", include_reasoning: false }
+        ...(options.reasoningEffort
+          ? { reasoning_effort: options.reasoningEffort }
           : {}),
-        ...(isQwen ? { reasoning_effort: "none" } : {}),
+        ...(options.includeReasoning !== undefined
+          ? { include_reasoning: options.includeReasoning }
+          : {}),
         stream: false,
       }),
     });
@@ -447,6 +553,11 @@ export async function groqChat(input: {
         data && typeof data === "object" && "error" in data
           ? (data as { error?: { message?: unknown } }).error?.message
           : null;
+      console.error(
+        "[velo ia] groq respondeu",
+        response.status,
+        typeof detail === "string" ? detail : "",
+      );
 
       if (response.status === 429) {
         throw new VeloIaRequestError(
@@ -460,10 +571,14 @@ export async function groqChat(input: {
           503,
         );
       }
+      if (response.status === 413) {
+        throw new VeloIaRequestError(
+          "A imagem é grande demais para a Groq. Tente uma foto menor.",
+          413,
+        );
+      }
       throw new VeloIaRequestError(
-        typeof detail === "string" && detail.trim()
-          ? "A Groq não conseguiu responder agora. Tente de novo."
-          : "A velo ia não conseguiu responder agora. Tente de novo.",
+        "A velo ia não conseguiu responder agora. Tente de novo.",
         502,
       );
     }
@@ -487,8 +602,7 @@ export async function groqChat(input: {
 
     return {
       reply: reply.trim(),
-      model: typeof model === "string" ? model : GROQ_MODEL,
-      mock: false,
+      model: typeof model === "string" ? model : options.model,
     };
   } catch (error) {
     if (error instanceof VeloIaRequestError) throw error;
@@ -505,4 +619,161 @@ export async function groqChat(input: {
   } finally {
     clearTimeout(timer);
   }
+}
+
+const VISION_REFUSAL_RE =
+  /(n[ãa]o (?:consigo|posso|conseguirei|tenho como) (?:ver|analisar|ler|descrever|processar|acessar)[^.!?\n]{0,40}imagem|sou (?:um|uma) (?:modelo|ia) (?:de )?texto|n[ãa]o (?:recebi|vejo) (?:nenhuma |a )?imagem|n[ãa]o tenho (?:a )?(?:capacidade|habilidade) de (?:ver|analisar|ler|descrever) imagens)/i;
+
+function looksLikeVisionRefusal(reply: string) {
+  return VISION_REFUSAL_RE.test(reply);
+}
+
+/**
+ * Resposta via Groq (OpenAI-compatible). O histórico vem do cliente, porque o
+ * backend gratuito não tem banco: o chat-view guarda as últimas mensagens no
+ * localStorage e envia junto. O servidor não confia no formato e sanitiza tudo.
+ * Com imagem, troca para o modelo de visão e monta o conteúdo multimodal.
+ */
+export async function groqChat(input: {
+  message: string;
+  history?: unknown;
+  image?: unknown;
+}): Promise<VeloIaChatResult> {
+  const message = input.message.trim();
+  const image = parseVeloIaImage(input.image);
+  if (!message) {
+    throw new VeloIaRequestError("Mensagem vazia.", 400);
+  }
+
+  // A camada determinística de segurança não depende do modelo.
+  if (containsCrisisLanguage(message)) {
+    return { reply: CRISIS_REPLY, model: "crisis", mock: false };
+  }
+
+  const history = sanitizeGroqHistory(input.history);
+  const isGptOss = GROQ_MODEL.startsWith("openai/gpt-oss");
+  const isQwen = GROQ_MODEL.startsWith("qwen/");
+  const userContent: string | GroqContentPart[] = image
+    ? [
+        { type: "text", text: message },
+        { type: "image_url", image_url: { url: image.dataUrl } },
+      ]
+    : message;
+
+  let result = await callGroq({
+    model: image ? GROQ_VISION_MODEL : GROQ_MODEL,
+    messages: [
+      {
+        role: "system",
+        content: image ? GROQ_VISION_PROMPT : GROQ_SYSTEM_PROMPT,
+      },
+      ...history,
+      { role: "user", content: userContent },
+    ],
+    maxCompletionTokens: 800,
+    ...(image
+      ? {}
+      : {
+          temperature: 0.7,
+          topP: 0.95,
+          ...(isGptOss
+            ? { reasoningEffort: "low" as const, includeReasoning: false }
+            : {}),
+          ...(isQwen ? { reasoningEffort: "none" as const } : {}),
+        }),
+  });
+
+  // O Qwen ocasionalmente responde como se a foto não tivesse chegado. Uma
+  // segunda tentativa com prompt curto resolve sem repetir o histórico.
+  if (image && looksLikeVisionRefusal(result.reply)) {
+    try {
+      const retry = await callGroq({
+        model: GROQ_VISION_MODEL,
+        messages: [
+          { role: "system", content: GROQ_VISION_RETRY_PROMPT },
+          { role: "user", content: userContent },
+        ],
+        maxCompletionTokens: 800,
+      });
+      if (!looksLikeVisionRefusal(retry.reply)) result = retry;
+    } catch (retryError) {
+      // Se a nova tentativa falhar, mantém a primeira resposta para a pessoa
+      // não perder o retorno por causa de um erro secundário.
+      console.error("[velo ia] retry de visão falhou:", retryError);
+    }
+  }
+
+  return { reply: result.reply, model: result.model, mock: false };
+}
+
+function cleanRewrittenText(value: string) {
+  let text = value.trim();
+  if (!text) return "";
+
+  // Remove cercas de código que alguns modelos adicionam.
+  text = text
+    .replace(/^```(?:text|markdown|md)?\s*/i, "")
+    .replace(/\s*```$/, "")
+    .trim();
+
+  // Remove um par de aspas envolvendo a resposta inteira, sem mexer em aspas
+  // que fazem parte da frase.
+  const quotePairs: Array<[string, string]> = [
+    ['"', '"'],
+    ["'", "'"],
+    ["“", "”"],
+    ["‘", "’"],
+  ];
+  for (const [open, close] of quotePairs) {
+    if (text.length >= 2 && text.startsWith(open) && text.endsWith(close)) {
+      text = text.slice(open.length, -close.length).trim();
+      break;
+    }
+  }
+
+  text = text
+    .replace(/^(?:texto corrigido|correção|frase corrigida)\s*:\s*/i, "")
+    .trim();
+
+  return text.slice(0, 2000).trim();
+}
+
+/**
+ * Correção de ortografia/gramática via Groq. Devolve só o texto corrigido,
+ * preservando tom, gírias, emojis e quebras de linha.
+ */
+export async function groqRewrite(input: {
+  text: string;
+}): Promise<{ text: string; model: string }> {
+  const text = input.text.trim();
+  if (!text) {
+    throw new VeloIaRequestError("Escreva uma frase para corrigir.", 400);
+  }
+
+  const isGptOss = GROQ_MODEL.startsWith("openai/gpt-oss");
+  const isQwen = GROQ_MODEL.startsWith("qwen/");
+  const result = await callGroq({
+    model: GROQ_MODEL,
+    messages: [
+      { role: "system", content: GROQ_REWRITE_PROMPT },
+      { role: "user", content: text },
+    ],
+    temperature: 0.1,
+    topP: 0.9,
+    maxCompletionTokens: 1200,
+    ...(isGptOss
+      ? { reasoningEffort: "low" as const, includeReasoning: false }
+      : {}),
+    ...(isQwen ? { reasoningEffort: "none" as const } : {}),
+  });
+
+  const corrected = cleanRewrittenText(result.reply);
+  if (!corrected) {
+    throw new VeloIaRequestError(
+      "A velo ia não conseguiu corrigir o texto agora. Tente de novo.",
+      502,
+    );
+  }
+
+  return { text: corrected, model: result.model };
 }

@@ -12,7 +12,16 @@ export type VeloIaMessage = {
   role: VeloIaRole;
   content: string;
   createdAt?: string;
+  /** Data URL da imagem enviada. Não é persistida no localStorage. */
+  image?: string;
 };
+
+// Limites do anexo de imagem no chat. O cliente comprime para ~2 MB; o
+// servidor aceita até 3 MB de bytes binários para não estourar o body da
+// função da Vercel (limite de ~4,5 MB, e base64 cresce ~33%).
+export const VELO_IA_IMAGE_MAX_BYTES = 3 * 1024 * 1024;
+export const VELO_IA_IMAGE_TARGET_BYTES = 2 * 1024 * 1024;
+export const VELO_IA_IMAGE_MAX_DATA_URL_LENGTH = 4_400_000;
 
 export type VeloIaHistoryPayload = {
   id?: number | string;

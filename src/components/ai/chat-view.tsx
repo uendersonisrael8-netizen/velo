@@ -5,21 +5,45 @@ import {
   useEffect,
   useRef,
   useState,
+  type ChangeEvent,
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import { ArrowUp, CloudOff, RefreshCw, Sparkles, Trash2 } from "lucide-react";
+import {
+  ArrowUp,
+  CloudOff,
+  ImagePlus,
+  Loader2,
+  RefreshCw,
+  Sparkles,
+  SpellCheck,
+  Trash2,
+  X,
+} from "lucide-react";
 import { useToast } from "@/components/providers/toast-provider";
 import {
   mapHistoryMessages,
+  VELO_IA_IMAGE_TARGET_BYTES,
   VELO_IA_NAME,
   VELO_IA_WELCOME_MESSAGE,
   type VeloIaMessage,
 } from "@/lib/ai/constants";
+import {
+  compressImageFile,
+  MAX_IMAGE_BYTES,
+  readImageAsDataURL,
+  validateImageFile,
+} from "@/lib/media";
 import { cn, createId } from "@/lib/utils";
 
 type ChatStatus = "loading" | "ready" | "offline";
 type OfflineReason = "not_configured" | "unreachable";
+
+type PendingImage = {
+  dataUrl: string;
+  name: string;
+  bytes: number;
+};
 
 type HistoryResponse = {
   ok?: boolean;
@@ -34,6 +58,12 @@ type ChatResponse = {
   ok?: boolean;
   reply?: string;
   mock?: boolean;
+  error?: string;
+};
+
+type RewriteResponse = {
+  ok?: boolean;
+  text?: string;
   error?: string;
 };
 
@@ -61,11 +91,18 @@ function readLocalHistory(storageKey: string): VeloIaMessage[] {
 
 function writeLocalHistory(storageKey: string, messages: VeloIaMessage[]) {
   try {
-    const payload = messages.slice(-HISTORY_STORAGE_LIMIT).map((message) => ({
-      role: message.role,
-      content: message.content,
-      created_at: message.createdAt,
-    }));
+    const payload = messages
+      .slice(-HISTORY_STORAGE_LIMIT)
+      .map((message) => ({
+        role: message.role,
+        // Imagens não cabem no localStorage; guardamos um marcador para a
+        // mensagem não sumir depois do reload.
+        content:
+          message.content.trim() ||
+          (message.image ? "📷 imagem enviada" : ""),
+        created_at: message.createdAt,
+      }))
+      .filter((message) => message.content);
     window.localStorage.setItem(
       HISTORY_STORAGE_PREFIX + storageKey,
       JSON.stringify(payload),
@@ -81,6 +118,49 @@ function clearLocalHistory(storageKey: string) {
   } catch {
     // Sem acesso ao localStorage, não há o que limpar.
   }
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024 * 1024) {
+    return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+async function prepareChatImage(file: File): Promise<PendingImage> {
+  validateImageFile(file, MAX_IMAGE_BYTES);
+
+  // Tenta primeiro 1600 px. Só recompõe se a foto ainda passar do alvo, para
+  // não perder qualidade à toa.
+  const attempts = [
+    { maxDimension: 1600, quality: 0.82 },
+    { maxDimension: 1280, quality: 0.72 },
+    { maxDimension: 1024, quality: 0.62 },
+  ];
+
+  let blob: Blob | null = null;
+  for (const attempt of attempts) {
+    blob = await compressImageFile(
+      file,
+      attempt.maxDimension,
+      attempt.quality,
+      "#ffffff",
+    );
+    if (blob.size <= VELO_IA_IMAGE_TARGET_BYTES) break;
+  }
+
+  if (!blob) {
+    throw new Error("Não conseguimos processar essa imagem.");
+  }
+  if (blob.size > VELO_IA_IMAGE_TARGET_BYTES * 1.5) {
+    throw new Error("A imagem continua grande demais. Tente uma foto menor.");
+  }
+
+  return {
+    dataUrl: await readImageAsDataURL(blob),
+    name: file.name,
+    bytes: blob.size,
+  };
 }
 
 function formatTime(value?: string) {
@@ -140,7 +220,19 @@ function MessageBubble({ message }: { message: VeloIaMessage }) {
               : "rounded-bl-[7px] border border-line bg-surface text-ink",
           )}
         >
-          <p className="whitespace-pre-wrap break-words">{message.content}</p>
+          {message.image ? (
+            <img
+              src={message.image}
+              alt="Imagem anexada na conversa"
+              className={cn(
+                "max-h-64 w-full rounded-[14px] object-cover",
+                message.content && "mb-2",
+              )}
+            />
+          ) : null}
+          {message.content ? (
+            <p className="whitespace-pre-wrap break-words">{message.content}</p>
+          ) : null}
         </div>
         {time ? (
           <p className="mt-1 px-1 text-[9.5px] tabular-nums text-muted">{time}</p>
@@ -229,9 +321,13 @@ export function ChatView() {
   const [mock, setMock] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [storageKey, setStorageKey] = useState<string | null>(null);
+  const [correcting, setCorrecting] = useState(false);
+  const [pendingImage, setPendingImage] = useState<PendingImage | null>(null);
+  const [preparingImage, setPreparingImage] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesRef = useRef<VeloIaMessage[]>([]);
 
   const applyMessages = useCallback(
@@ -336,13 +432,91 @@ export function ChatView() {
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [confirmClear]);
 
+  const correctText = useCallback(async () => {
+    const text = input.trim();
+    if (!text || correcting || sending || status !== "ready") return;
+
+    setCorrecting(true);
+    try {
+      const response = await fetch("/api/ai/rewrite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      const data = (await response
+        .json()
+        .catch(() => null)) as RewriteResponse | null;
+
+      if (
+        !response.ok ||
+        !data?.ok ||
+        typeof data.text !== "string" ||
+        !data.text.trim()
+      ) {
+        throw new Error(
+          data?.error ?? "Não consegui corrigir o texto agora.",
+        );
+      }
+
+      const corrected = data.text.trim();
+      if (corrected === text) {
+        toast("Seu texto já está certinho.");
+      } else {
+        setInput(corrected);
+        toast("Texto corrigido.", "success");
+        requestAnimationFrame(() => textareaRef.current?.focus());
+      }
+    } catch (rewriteError) {
+      toast(
+        rewriteError instanceof Error
+          ? rewriteError.message
+          : "Não consegui corrigir o texto agora.",
+        "error",
+      );
+    } finally {
+      setCorrecting(false);
+    }
+  }, [correcting, input, sending, status, toast]);
+
+  const handleImageChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    // Permite escolher o mesmo arquivo de novo depois de remover a prévia.
+    event.target.value = "";
+    if (!file) return;
+
+    setPreparingImage(true);
+    try {
+      const prepared = await prepareChatImage(file);
+      setPendingImage(prepared);
+    } catch (imageError) {
+      toast(
+        imageError instanceof Error
+          ? imageError.message
+          : "Não consegui preparar essa imagem.",
+        "error",
+      );
+    } finally {
+      setPreparingImage(false);
+    }
+  };
+
   const sendMessage = useCallback(async () => {
     const text = input.trim();
-    if (!text || sending || status !== "ready") return;
+    const image = pendingImage?.dataUrl ?? null;
+    if (
+      (!text && !image) ||
+      sending ||
+      preparingImage ||
+      status !== "ready"
+    ) {
+      return;
+    }
 
     setError(null);
-    // O contexto vai sem a mensagem atual: o servidor acrescenta ela depois.
+    // O contexto vai sem a mensagem atual e sem imagens antigas (que não são
+    // persistidas): o servidor acrescenta a mensagem atual depois.
     const history = messagesRef.current
+      .filter((message) => message.content.trim())
       .slice(-HISTORY_CONTEXT_LIMIT)
       .map((message) => ({ role: message.role, content: message.content }));
 
@@ -350,18 +524,27 @@ export function ChatView() {
       id: createId("msg"),
       role: "user",
       content: text,
+      image: image ?? undefined,
       createdAt: new Date().toISOString(),
     };
+    const imageToRestore = pendingImage;
 
     applyMessages([...messagesRef.current, optimistic], null);
     setInput("");
+    setPendingImage(null);
     setSending(true);
 
     try {
       const response = await fetch("/api/ai/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, history }),
+        body: JSON.stringify({
+          message:
+            text ||
+            "O que você vê nesta imagem? Descreva e comente com carinho.",
+          history,
+          ...(image ? { image } : {}),
+        }),
       });
       const data = (await response
         .json()
@@ -383,12 +566,13 @@ export function ChatView() {
       applyMessages([...messagesRef.current, assistantMessage], storageKey);
     } catch (sendError) {
       // A mensagem otimista sai da tela e volta para o campo, para a pessoa
-      // tentar de novo sem perder o texto.
+      // tentar de novo sem perder o texto nem a imagem.
       applyMessages(
         messagesRef.current.filter((message) => message.id !== optimistic.id),
         null,
       );
       setInput(text);
+      if (imageToRestore) setPendingImage(imageToRestore);
       const message =
         sendError instanceof Error
           ? sendError.message
@@ -398,7 +582,16 @@ export function ChatView() {
     } finally {
       setSending(false);
     }
-  }, [applyMessages, input, sending, status, storageKey, toast]);
+  }, [
+    applyMessages,
+    input,
+    pendingImage,
+    preparingImage,
+    sending,
+    status,
+    storageKey,
+    toast,
+  ]);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -431,6 +624,7 @@ export function ChatView() {
 
       if (storageKey) clearLocalHistory(storageKey);
       applyMessages([], null);
+      setPendingImage(null);
       setError(null);
       setConfirmClear(false);
       toast("Conversa limpa. Podemos começar de novo.");
@@ -446,7 +640,11 @@ export function ChatView() {
     }
   }, [applyMessages, clearing, storageKey, toast]);
 
-  const canSend = status === "ready" && !sending && input.trim().length > 0;
+  const canSend =
+    status === "ready" &&
+    !sending &&
+    !preparingImage &&
+    (input.trim().length > 0 || Boolean(pendingImage));
   const statusLabel =
     status === "ready"
       ? "online · amiga virtual"
@@ -537,7 +735,10 @@ export function ChatView() {
 
       <div className="shrink-0 border-t border-line bg-paper/90 px-4 pb-3 pt-3 backdrop-blur-xl md:px-8">
         <div className="mx-auto w-full max-w-[820px]">
-          {messages.length === 0 && status === "ready" ? (
+          {messages.length === 0 &&
+          status === "ready" &&
+          !pendingImage &&
+          !preparingImage ? (
             <div className="mb-3 flex flex-wrap gap-2">
               {SUGGESTIONS.map((suggestion) => (
                 <button
@@ -555,6 +756,38 @@ export function ChatView() {
             </div>
           ) : null}
 
+          {preparingImage ? (
+            <div className="mb-2 flex items-center gap-2 rounded-[16px] border border-line bg-surface px-3 py-2 text-[11.5px] text-muted">
+              <Loader2 className="size-4 animate-spin" strokeWidth={1.8} />
+              preparando a imagem…
+            </div>
+          ) : pendingImage ? (
+            <div className="mb-2 flex items-center gap-2.5 rounded-[16px] border border-line bg-surface p-2">
+              <img
+                src={pendingImage.dataUrl}
+                alt="Prévia da imagem anexada"
+                className="size-14 shrink-0 rounded-[12px] object-cover"
+              />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[11.5px] font-medium text-ink">
+                  {pendingImage.name}
+                </p>
+                <p className="mt-0.5 text-[10px] text-muted">
+                  {formatBytes(pendingImage.bytes)} · a velo ia vai analisar
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPendingImage(null)}
+                aria-label="Remover imagem"
+                title="Remover imagem"
+                className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-elevated hover:text-ink"
+              >
+                <X className="size-4" strokeWidth={1.8} />
+              </button>
+            </div>
+          ) : null}
+
           {error ? (
             <p
               className="mb-2 rounded-[12px] border border-red-500/20 bg-red-500/10 px-3 py-2 text-[11.5px] leading-relaxed text-red-500 dark:text-red-300"
@@ -568,6 +801,46 @@ export function ChatView() {
             onSubmit={handleSubmit}
             className="flex items-end gap-2 rounded-[24px] border border-line bg-surface p-1.5 shadow-sm transition focus-within:border-line-strong"
           >
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              className="hidden"
+              onChange={(event) => void handleImageChange(event)}
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={status !== "ready" || sending || preparingImage}
+              aria-label="Anexar imagem"
+              title="Anexar imagem (JPG, PNG ou WebP)"
+              className="mb-0.5 flex size-9 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-elevated hover:text-ink disabled:cursor-not-allowed disabled:opacity-35"
+            >
+              {preparingImage ? (
+                <Loader2 className="size-4 animate-spin" strokeWidth={1.8} />
+              ) : (
+                <ImagePlus className="size-4" strokeWidth={1.8} />
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => void correctText()}
+              disabled={
+                !input.trim() ||
+                status !== "ready" ||
+                sending ||
+                correcting
+              }
+              aria-label="Corrigir ortografia e gramática"
+              title="Corrigir ortografia e gramática"
+              className="mb-0.5 flex size-9 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-elevated hover:text-ink disabled:cursor-not-allowed disabled:opacity-35"
+            >
+              {correcting ? (
+                <Loader2 className="size-4 animate-spin" strokeWidth={1.8} />
+              ) : (
+                <SpellCheck className="size-4" strokeWidth={1.8} />
+              )}
+            </button>
             <textarea
               ref={textareaRef}
               value={input}
@@ -575,10 +848,12 @@ export function ChatView() {
               onKeyDown={handleKeyDown}
               rows={1}
               maxLength={2000}
-              disabled={status !== "ready" || sending}
+              disabled={status !== "ready" || sending || correcting}
               placeholder={
                 status === "ready"
-                  ? "manda uma mensagem pra velo ia…"
+                  ? correcting
+                    ? "corrigindo o texto…"
+                    : "manda uma mensagem pra velo ia…"
                   : status === "loading"
                     ? "carregando a conversa…"
                     : "velo ia offline"
@@ -605,7 +880,7 @@ export function ChatView() {
             <span>
               {status === "offline"
                 ? "a conversa volta quando a API estiver disponível"
-                : "enter envia · shift + enter quebra linha"}
+                : "enter envia · shift + enter quebra linha · fotos até 3 MB"}
             </span>
             <span
               className={cn(
