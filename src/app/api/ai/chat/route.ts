@@ -93,11 +93,12 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // O FastAPI self-hosted continua tendo prioridade no texto. Imagem só existe
-  // no adaptador Groq, então uma foto sempre usa a Groq (se configurada).
+  // A Groq é o caminho principal: além do modelo gratuito, é ela que tem a
+  // ferramenta de busca na web. O FastAPI self-hosted fica como fallback para
+  // quando GROQ_API_KEY não estiver configurada. Imagem só existe no Groq.
   const hasImage = Boolean(parsed.data.image);
-  const useFastApi = isVeloIaConfigured() && !hasImage;
-  const useGroq = !useFastApi && isGroqConfigured();
+  const useGroq = isGroqConfigured();
+  const useFastApi = !useGroq && isVeloIaConfigured() && !hasImage;
 
   if (!useFastApi && !useGroq) {
     if (isVeloIaMock()) {
@@ -156,6 +157,8 @@ export async function POST(request: NextRequest) {
           reply: result.reply.trim(),
           mock: Boolean(result.mock),
           model: result.model ?? null,
+          searched: Boolean(result.searched),
+          sources: result.sources ?? [],
         },
         200,
         rateLimitHeaders(identityLimit),
