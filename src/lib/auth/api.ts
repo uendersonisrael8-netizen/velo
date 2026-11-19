@@ -38,16 +38,36 @@ export function rateLimitHeaders(result: RateLimitResult) {
 }
 
 /**
- * Browsers enviam `Origin` em POSTs. Exigir que ele pertença ao próprio site
- * (ou ao domínio público configurado) bloqueia CSRF em navegadores antigos que
- * ainda não aplicam SameSite. Requisições sem Origin são permitidas porque
- * clientes nativos e algumas integrações não enviam o header.
+ * Origens que podem falar com as rotas da IA. Além do próprio site, entram o
+ * WebView do app Android/iOS (https://localhost e capacitor://localhost) e o
+ * Vite em desenvolvimento. Origens extras podem ser liberadas por env sem
+ * precisar mexer no código.
  */
-export function isTrustedOrigin(request: NextRequest) {
-  const origin = request.headers.get("origin");
-  if (!origin) return true;
+const APP_ORIGINS = [
+  "https://localhost",
+  "capacitor://localhost",
+  "http://localhost",
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+];
 
-  const allowed = new Set<string>([request.nextUrl.origin]);
+function configuredOrigins() {
+  return (process.env.VELO_IA_ALLOWED_ORIGINS ?? "")
+    .split(",")
+    .map((origin) => origin.trim().replace(/\/+$/, ""))
+    .filter(Boolean);
+}
+
+export function resolveCorsOrigin(request: NextRequest): string | null {
+  const origin = request.headers.get("origin");
+  if (!origin) return null;
+
+  const allowed = new Set<string>([
+    request.nextUrl.origin,
+    ...APP_ORIGINS,
+    ...configuredOrigins(),
+  ]);
+
   const configured = process.env.NEXT_PUBLIC_SITE_URL?.trim();
   if (configured) {
     try {
@@ -56,11 +76,55 @@ export function isTrustedOrigin(request: NextRequest) {
       // URL pública inválida: o próprio host da requisição continua valendo.
     }
   }
+
   if (process.env.NODE_ENV !== "production") {
     allowed.add("http://localhost:3000");
     allowed.add("http://127.0.0.1:3000");
   }
-  return allowed.has(origin);
+
+  return allowed.has(origin) ? origin : null;
+}
+
+export function corsHeaders(request: NextRequest) {
+  const origin = resolveCorsOrigin(request);
+  if (!origin) return {} as Record<string, string>;
+
+  return {
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Methods": "GET,POST,PATCH,DELETE,OPTIONS",
+    "Access-Control-Allow-Headers": "Authorization, Content-Type, Accept",
+    "Access-Control-Max-Age": "86400",
+    Vary: "Origin",
+  };
+}
+
+export function withCors<T extends NextResponse>(response: T, request: NextRequest): T {
+  for (const [key, value] of Object.entries(corsHeaders(request))) {
+    response.headers.set(key, value);
+  }
+  return response;
+}
+
+export function corsPreflight(request: NextRequest) {
+  if (!resolveCorsOrigin(request)) {
+    return new NextResponse(null, { status: 403 });
+  }
+  return new NextResponse(null, {
+    status: 204,
+    headers: corsHeaders(request),
+  });
+}
+
+/**
+ * Browsers enviam `Origin` em POSTs. Exigir que ele pertença ao próprio site
+ * (ou ao domínio público configurado) bloqueia CSRF em navegadores antigos que
+ * ainda não aplicam SameSite. Requisições sem Origin são permitidas porque
+ * clientes nativos e algumas integrações não enviam o header.
+ */
+export function isTrustedOrigin(request: NextRequest) {
+  const origin = request.headers.get("origin");
+  if (!origin) return true;
+  return resolveCorsOrigin(request) !== null;
 }
 
 export async function readJsonBody(

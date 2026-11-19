@@ -1,4 +1,5 @@
 import { createServerClient } from "@supabase/ssr";
+import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
@@ -33,6 +34,28 @@ export async function createSupabaseServerClient() {
           // é quem renova a sessão antes da renderização.
         }
       },
+    },
+  });
+}
+
+/**
+ * Cliente usado por apps nativos, que não compartilham os cookies do navegador.
+ * O JWT do Supabase é enviado no header Authorization e o RLS continua valendo:
+ * o cliente só enxerga as linhas do próprio usuário.
+ */
+export function createSupabaseBearerClient(accessToken: string) {
+  if (!url || !anonKey) {
+    throw new Error("Supabase não está configurado neste ambiente.");
+  }
+
+  return createClient(url, anonKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+    },
+    global: {
+      headers: { Authorization: `Bearer ${accessToken}` },
     },
   });
 }

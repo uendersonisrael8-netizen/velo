@@ -112,6 +112,9 @@ export const aiChatSchema = z.object({
   // O backend Groq não tem banco: o cliente manda as últimas mensagens para
   // dar contexto. O servidor sanitiza de novo e limita a 10 no adaptador.
   history: z.array(aiHistoryEntrySchema).max(10).optional().catch(undefined),
+  // Quando a pessoa está logada, o servidor carrega o contexto do Supabase e
+  // ignora o history enviado pelo cliente.
+  conversationId: z.string().uuid("Conversa inválida.").optional(),
   // Imagem opcional em data URL. O adaptador confere os bytes e a assinatura
   // real do arquivo antes de mandar para a Groq.
   image: z

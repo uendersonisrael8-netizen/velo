@@ -1,13 +1,17 @@
 import type { NextRequest } from "next/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   authError,
   authJson,
+  corsPreflight,
   isTrustedOrigin,
   rateLimitHeaders,
   readJsonBody,
+  withCors,
 } from "@/lib/auth/api";
 import {
   applyVeloIaIdentity,
+  createVeloIaUserClient,
   groqChat,
   isGroqConfigured,
   isVeloIaConfigured,
@@ -16,7 +20,19 @@ import {
   resolveVeloIaIdentity,
   veloIaChat,
   VeloIaRequestError,
+  type VeloIaChatMessage,
 } from "@/lib/ai/server";
+import {
+  AI_DEFAULT_TITLE,
+  appendAiExchange,
+  conversationTitleFromMessage,
+  createAiConversation,
+  deleteAiConversation,
+  getAiConversation,
+  isMissingAiHistoryTable,
+  listAiMessages,
+  renameAiConversation,
+} from "@/lib/ai/store";
 import { checkRateLimit, clientIp, hashRateLimitKey } from "@/lib/security/rate-limit";
 import { aiChatSchema } from "@/lib/validation";
 
@@ -28,6 +44,10 @@ const AI_WINDOW_MS = 10 * 60 * 1000;
 const AI_IDENTITY_LIMIT = 15;
 const AI_IP_LIMIT = 40;
 
+export function OPTIONS(request: NextRequest) {
+  return corsPreflight(request);
+}
+
 export async function POST(request: NextRequest) {
   if (!isTrustedOrigin(request)) {
     return authError("Origem da requisição não autorizada.", 403);
@@ -35,7 +55,7 @@ export async function POST(request: NextRequest) {
 
   const identity = await resolveVeloIaIdentity(request);
   const respond = (response: ReturnType<typeof authJson>) =>
-    applyVeloIaIdentity(response, identity);
+    withCors(applyVeloIaIdentity(response, identity), request);
 
   const ipLimit = checkRateLimit(
     `ai-ip:${hashRateLimitKey(clientIp(request))}`,
@@ -110,6 +130,9 @@ export async function POST(request: NextRequest) {
             reply: result.reply,
             mock: true,
             model: result.model ?? null,
+            conversationId: null,
+            persisted: false,
+            storage: "local",
           },
           200,
           rateLimitHeaders(identityLimit),
@@ -128,6 +151,55 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Usuário logado no caminho Groq: o histórico do Supabase é a fonte da
+  // verdade. Se a migração ainda não foi aplicada, o chat cai para o
+  // localStorage sem interromper a conversa.
+  let conversationId = parsed.data.conversationId ?? null;
+  let conversationTitle = AI_DEFAULT_TITLE;
+  let storedHistory: VeloIaChatMessage[] | null = null;
+  let persistence = false;
+  let createdConversationId: string | null = null;
+  let userClient: SupabaseClient | null = null;
+
+  if (useGroq && identity.authenticated && identity.userId) {
+    userClient = await createVeloIaUserClient(identity);
+    if (userClient) {
+      try {
+        let conversation = conversationId
+          ? await getAiConversation(userClient, identity.userId, conversationId)
+          : null;
+
+        // Conversa apagada em outro aparelho: começa uma nova em vez de
+        // devolver erro e travar o composer.
+        if (!conversation) {
+          conversation = await createAiConversation(userClient, identity.userId);
+          createdConversationId = conversation.id;
+        }
+
+        conversationId = conversation.id;
+        conversationTitle = conversation.title;
+        const stored = await listAiMessages(userClient, conversationId, 20);
+        storedHistory = stored.map((message) => ({
+          role: message.role,
+          content: message.content,
+        }));
+        persistence = true;
+      } catch (error) {
+        if (isMissingAiHistoryTable(error)) {
+          console.warn(
+            "[velo ia] tabelas de histórico ausentes; usando localStorage até a migração ser aplicada.",
+          );
+        } else {
+          console.error("[velo ia] falha ao preparar histórico:", error);
+        }
+        conversationId = null;
+        storedHistory = null;
+        persistence = false;
+        createdConversationId = null;
+      }
+    }
+  }
+
   try {
     const result = useFastApi
       ? await veloIaChat({
@@ -136,7 +208,7 @@ export async function POST(request: NextRequest) {
         })
       : await groqChat({
           message: parsed.data.message,
-          history: parsed.data.history,
+          history: storedHistory ?? parsed.data.history,
           image: parsed.data.image,
         });
 
@@ -150,21 +222,66 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const reply = result.reply.trim();
+
+    if (persistence && userClient && identity.userId && conversationId) {
+      try {
+        await appendAiExchange(
+          userClient,
+          identity.userId,
+          conversationId,
+          parsed.data.message,
+          reply,
+        );
+
+        if (conversationTitle === AI_DEFAULT_TITLE) {
+          await renameAiConversation(
+            userClient,
+            identity.userId,
+            conversationId,
+            conversationTitleFromMessage(parsed.data.message),
+          );
+        }
+        createdConversationId = null;
+      } catch (error) {
+        if (isMissingAiHistoryTable(error)) {
+          console.warn(
+            "[velo ia] não foi possível salvar a conversa: migração ausente.",
+          );
+        } else {
+          console.error("[velo ia] falha ao salvar mensagens:", error);
+        }
+        persistence = false;
+      }
+    }
+
     return respond(
       authJson(
         {
           ok: true,
-          reply: result.reply.trim(),
+          reply,
           mock: Boolean(result.mock),
           model: result.model ?? null,
           searched: Boolean(result.searched),
           sources: result.sources ?? [],
+          conversationId: persistence ? conversationId : null,
+          persisted: persistence,
+          storage: persistence ? "server" : "local",
         },
         200,
         rateLimitHeaders(identityLimit),
       ),
     );
   } catch (error) {
+    // Se uma conversa vazia foi criada e a IA falhou, não deixa lixo no drawer.
+    if (createdConversationId && userClient && identity.userId) {
+      await deleteAiConversation(
+        userClient,
+        identity.userId,
+        createdConversationId,
+      ).catch(() => undefined);
+    }
+
     if (
       isVeloIaMock() &&
       error instanceof VeloIaRequestError &&
@@ -178,6 +295,9 @@ export async function POST(request: NextRequest) {
             reply: result.reply,
             mock: true,
             model: result.model ?? null,
+            conversationId: null,
+            persisted: false,
+            storage: "local",
           },
           200,
           rateLimitHeaders(identityLimit),

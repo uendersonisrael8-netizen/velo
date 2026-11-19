@@ -8,7 +8,8 @@ import {
   shouldSearchWeb,
   type WebSearchSource,
 } from "@/lib/ai/web-search";
-import { createSupabaseServerClient, isSupabaseServerConfigured } from "@/lib/supabase/server";
+import { createSupabaseServerClient, createSupabaseBearerClient, isSupabaseServerConfigured } from "@/lib/supabase/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 const CONFIGURED_URL = process.env.VELO_IA_API_URL?.trim().replace(/\/+$/, "");
 const CONFIGURED_KEY = process.env.VELO_IA_API_KEY?.trim();
@@ -60,6 +61,10 @@ export class VeloIaRequestError extends Error {
 export type VeloIaIdentity = {
   conversationId: string;
   authenticated: boolean;
+  /** Preenchido quando a requisição veio de uma sessão válida do Supabase. */
+  userId?: string;
+  /** JWT do app nativo. Ausente quando a autenticação veio por cookies. */
+  accessToken?: string;
   cookie?: {
     name: string;
     value: string;
@@ -408,6 +413,31 @@ export async function resolveVeloIaIdentity(
   request: NextRequest,
 ): Promise<VeloIaIdentity> {
   if (isSupabaseServerConfigured) {
+    // App nativo: o WebView não compartilha cookies com o site, então o JWT
+    // chega em Authorization: Bearer <access_token>.
+    const authorization = request.headers.get("authorization");
+    if (authorization?.toLowerCase().startsWith("bearer ")) {
+      const accessToken = authorization.slice(7).trim();
+      if (accessToken) {
+        try {
+          const supabase = createSupabaseBearerClient(accessToken);
+          const {
+            data: { user },
+          } = await supabase.auth.getUser(accessToken);
+          if (user) {
+            return {
+              conversationId: `user_${user.id}`,
+              authenticated: true,
+              userId: user.id,
+              accessToken,
+            };
+          }
+        } catch {
+          // Token inválido/expirado: segue como visitante ou tenta cookies.
+        }
+      }
+    }
+
     try {
       const supabase = await createSupabaseServerClient();
       const {
@@ -417,6 +447,7 @@ export async function resolveVeloIaIdentity(
         return {
           conversationId: `user_${user.id}`,
           authenticated: true,
+          userId: user.id,
         };
       }
     } catch {
@@ -448,6 +479,29 @@ export async function resolveVeloIaIdentity(
       },
     },
   };
+}
+
+/**
+ * Cliente Supabase que respeita o RLS do usuário autenticado, seja por cookie
+ * (rede social) ou por bearer token (app nativo).
+ */
+export async function createVeloIaUserClient(
+  identity: VeloIaIdentity,
+): Promise<SupabaseClient | null> {
+  if (!identity.authenticated || !identity.userId) return null;
+
+  try {
+    if (identity.accessToken) {
+      return createSupabaseBearerClient(identity.accessToken);
+    }
+    if (isSupabaseServerConfigured) {
+      return await createSupabaseServerClient();
+    }
+  } catch (error) {
+    console.error("[velo ia] falha ao criar cliente Supabase:", error);
+  }
+
+  return null;
 }
 
 export function applyVeloIaIdentity(

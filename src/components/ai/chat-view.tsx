@@ -50,7 +50,9 @@ type HistoryResponse = {
   ok?: boolean;
   configured?: boolean;
   storage?: "local" | "server";
+  authenticated?: boolean;
   storageKey?: string;
+  conversationId?: string | null;
   messages?: unknown;
   error?: string;
 };
@@ -59,6 +61,8 @@ type ChatResponse = {
   ok?: boolean;
   reply?: string;
   mock?: boolean;
+  conversationId?: string | null;
+  storage?: "local" | "server";
   error?: string;
 };
 
@@ -322,6 +326,8 @@ export function ChatView() {
   const [mock, setMock] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [storageKey, setStorageKey] = useState<string | null>(null);
+  const [storageMode, setStorageMode] = useState<"local" | "server">("local");
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const [correcting, setCorrecting] = useState(false);
   const [pendingImage, setPendingImage] = useState<PendingImage | null>(null);
   const [preparingImage, setPreparingImage] = useState(false);
@@ -366,14 +372,21 @@ export function ChatView() {
       setStorageKey(nextStorageKey);
 
       if (data.storage === "local") {
-        // Groq: o servidor não guarda nada; o navegador é a fonte da verdade.
+        // Visitante ou migração ainda não aplicada: o navegador é a fonte da
+        // verdade e o servidor só entrega a chave isolada por conversa.
+        setStorageMode("local");
+        setConversationId(null);
         applyMessages(
           nextStorageKey ? readLocalHistory(nextStorageKey) : [],
           null,
         );
       } else {
-        // FastAPI: o servidor guarda a conversa e o localStorage serve de
-        // espelho para não perder o contexto se o backend trocar.
+        // Usuário logado: a conversa vem do Supabase e aparece também no app
+        // Android. O localStorage continua como espelho de emergência.
+        setStorageMode("server");
+        setConversationId(
+          typeof data.conversationId === "string" ? data.conversationId : null,
+        );
         applyMessages(mapHistoryMessages(data.messages), nextStorageKey);
       }
       setStatus("ready");
@@ -544,6 +557,7 @@ export function ChatView() {
             text ||
             "O que você vê nesta imagem? Descreva e comente com carinho.",
           history,
+          ...(conversationId ? { conversationId } : {}),
           ...(image ? { image } : {}),
         }),
       });
@@ -558,13 +572,20 @@ export function ChatView() {
       }
 
       setMock(Boolean(data.mock));
+      if (typeof data.conversationId === "string" && data.conversationId) {
+        setConversationId(data.conversationId);
+      }
+      if (data.storage === "server") setStorageMode("server");
       const assistantMessage: VeloIaMessage = {
         id: createId("msg"),
         role: "assistant",
         content: data.reply as string,
         createdAt: new Date().toISOString(),
       };
-      applyMessages([...messagesRef.current, assistantMessage], storageKey);
+      applyMessages(
+        [...messagesRef.current, assistantMessage],
+        storageMode === "local" ? storageKey : null,
+      );
     } catch (sendError) {
       // A mensagem otimista sai da tela e volta para o campo, para a pessoa
       // tentar de novo sem perder o texto nem a imagem.
@@ -585,12 +606,14 @@ export function ChatView() {
     }
   }, [
     applyMessages,
+    conversationId,
     input,
     pendingImage,
     preparingImage,
     sending,
     status,
     storageKey,
+    storageMode,
     toast,
   ]);
 
@@ -614,7 +637,10 @@ export function ChatView() {
     if (clearing) return;
     setClearing(true);
     try {
-      const response = await fetch("/api/ai/history", { method: "DELETE" });
+      const url = conversationId
+        ? `/api/ai/history?conversationId=${encodeURIComponent(conversationId)}`
+        : "/api/ai/history";
+      const response = await fetch(url, { method: "DELETE" });
       const data = (await response
         .json()
         .catch(() => null)) as { ok?: boolean; error?: string } | null;
@@ -624,6 +650,7 @@ export function ChatView() {
       }
 
       if (storageKey) clearLocalHistory(storageKey);
+      setConversationId(null);
       applyMessages([], null);
       setPendingImage(null);
       setError(null);
@@ -639,7 +666,7 @@ export function ChatView() {
     } finally {
       setClearing(false);
     }
-  }, [applyMessages, clearing, storageKey, toast]);
+  }, [applyMessages, clearing, conversationId, storageKey, toast]);
 
   const canSend =
     status === "ready" &&
