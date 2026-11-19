@@ -8,6 +8,10 @@ import { AuthField, authInputClass } from "@/components/auth/auth-field";
 import { useApp } from "@/components/providers/app-provider";
 import { useToast } from "@/components/providers/toast-provider";
 import { flattenZodErrors, signUpSchema } from "@/lib/validation";
+import {
+  TECHNICAL_INPUT_PROPS,
+  WORDS_INPUT_PROPS,
+} from "@/lib/input-suggestions";
 import { normalizeHandle } from "@/lib/utils";
 
 export function SignupForm() {
@@ -131,6 +135,8 @@ export function SignupForm() {
       <form onSubmit={handleSubmit} className="mt-6 space-y-3.5 sm:space-y-4">
         <AuthField id="signup-name" label="seu nome" error={errors.displayName}>
           <input
+            {...WORDS_INPUT_PROPS}
+            autoComplete="name"
             id="signup-name"
             value={displayName}
             onChange={(event) => {
@@ -139,7 +145,6 @@ export function SignupForm() {
               if (!handleTouched) setHandle(normalizeHandle(value));
             }}
             placeholder="Como você quer ser chamado"
-            autoComplete="name"
             maxLength={60}
             className={authInputClass}
           />
@@ -154,6 +159,8 @@ export function SignupForm() {
           <div className="flex h-12 items-center rounded-[12px] border border-line bg-surface pl-3.5 pr-3 transition focus-within:border-line-strong focus-within:bg-paper sm:h-11">
             <span className="text-[12px] text-muted">@</span>
             <input
+              {...TECHNICAL_INPUT_PROPS}
+              autoComplete="username"
               id="signup-handle"
               value={handle}
               onChange={(event) => {
@@ -161,7 +168,6 @@ export function SignupForm() {
                 setHandle(event.target.value.toLowerCase());
               }}
               placeholder="seu_handle"
-              autoComplete="username"
               maxLength={24}
               className="min-w-0 flex-1 bg-transparent px-1 text-[16px] text-ink outline-none placeholder:text-muted/60 sm:text-[12px]"
             />
@@ -204,23 +210,25 @@ export function SignupForm() {
             }
           >
             <input
+              {...TECHNICAL_INPUT_PROPS}
+              autoComplete="new-password"
               id="signup-password"
               type={showPassword ? "text" : "password"}
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               placeholder="8+ caracteres"
-              autoComplete="new-password"
               className={authInputClass}
             />
           </AuthField>
           <AuthField id="signup-confirm" label="confirmar" error={errors.confirmPassword}>
             <input
+              {...TECHNICAL_INPUT_PROPS}
+              autoComplete="new-password"
               id="signup-confirm"
               type={showPassword ? "text" : "password"}
               value={confirmPassword}
               onChange={(event) => setConfirmPassword(event.target.value)}
               placeholder="repetir senha"
-              autoComplete="new-password"
               className={authInputClass}
             />
           </AuthField>

@@ -31,6 +31,11 @@ import {
   validateMediaFile,
 } from "@/lib/media";
 import type { MediaType } from "@/lib/types";
+import {
+  SENTENCE_INPUT_PROPS,
+  TECHNICAL_INPUT_PROPS,
+  WORDS_INPUT_PROPS,
+} from "@/lib/input-suggestions";
 import { uploadSchema } from "@/lib/validation";
 import {
   cn,
@@ -381,6 +386,8 @@ export function UploadView() {
                 <span className="text-[9px] tabular-nums text-muted/60">{caption.length}/2200</span>
               </div>
               <textarea
+                {...SENTENCE_INPUT_PROPS}
+                autoComplete="on"
                 id="caption"
                 value={caption}
                 onChange={(event) => setCaption(event.target.value.slice(0, 2200))}
@@ -419,6 +426,8 @@ export function UploadView() {
                   </span>
                 ))}
                 <input
+                  {...TECHNICAL_INPUT_PROPS}
+                  autoComplete="off"
                   id="tags"
                   value={tagDraft}
                   onChange={(event) => {
@@ -462,6 +471,8 @@ export function UploadView() {
                 <label className="flex h-11 items-center gap-2.5 rounded-[13px] border border-line bg-surface px-3.5 transition focus-within:border-line-strong focus-within:bg-paper">
                   <MapPin className="size-3.5 shrink-0 text-muted" strokeWidth={1.7} />
                   <input
+                    {...WORDS_INPUT_PROPS}
+                    autoComplete="on"
                     value={location}
                     onChange={(event) => setLocation(event.target.value.slice(0, 80))}
                     placeholder="Onde foi? (opcional)"
@@ -474,6 +485,8 @@ export function UploadView() {
                   <label className="flex h-11 items-center gap-2.5 rounded-[13px] border border-line bg-surface px-3.5 transition focus-within:border-line-strong focus-within:bg-paper">
                     <Music2 className="size-3.5 shrink-0 text-muted" strokeWidth={1.7} />
                     <input
+                      {...WORDS_INPUT_PROPS}
+                      autoComplete="on"
                       value={audio}
                       onChange={(event) => setAudio(event.target.value.slice(0, 120))}
                       placeholder="Nome do som ou artista"

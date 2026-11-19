@@ -7,6 +7,11 @@ import { useToast } from "@/components/providers/toast-provider";
 import { Avatar } from "@/components/ui/avatar";
 import { Dialog } from "@/components/ui/dialog";
 import { validateImageFile } from "@/lib/media";
+import {
+  SENTENCE_INPUT_PROPS,
+  TECHNICAL_INPUT_PROPS,
+  WORDS_INPUT_PROPS,
+} from "@/lib/input-suggestions";
 import { flattenZodErrors, profileSchema } from "@/lib/validation";
 import { cn } from "@/lib/utils";
 
@@ -154,6 +159,8 @@ export function EditProfileDialog({ onClose }: { onClose: () => void }) {
               counter={`${displayName.length}/60`}
             >
               <input
+                {...WORDS_INPUT_PROPS}
+                autoComplete="name"
                 id="profile-name"
                 value={displayName}
                 onChange={(event) => setDisplayName(event.target.value.slice(0, 60))}
@@ -165,6 +172,8 @@ export function EditProfileDialog({ onClose }: { onClose: () => void }) {
               <div className="flex h-11 items-center rounded-[12px] border border-line bg-surface pl-3.5 pr-3 transition focus-within:border-line-strong focus-within:bg-paper">
                 <span className="text-[12px] text-muted">@</span>
                 <input
+                  {...TECHNICAL_INPUT_PROPS}
+                  autoComplete="username"
                   id="profile-handle"
                   value={handle}
                   onChange={(event) => setHandle(event.target.value.toLowerCase())}
@@ -182,6 +191,8 @@ export function EditProfileDialog({ onClose }: { onClose: () => void }) {
             counter={`${bio.length}/160`}
           >
             <textarea
+              {...SENTENCE_INPUT_PROPS}
+              autoComplete="on"
               id="profile-bio"
               value={bio}
               onChange={(event) => setBio(event.target.value.slice(0, 160))}
@@ -194,6 +205,9 @@ export function EditProfileDialog({ onClose }: { onClose: () => void }) {
           <div className="grid gap-4 sm:grid-cols-2">
             <Field id="profile-link" label="link" error={errors.link}>
               <input
+                {...TECHNICAL_INPUT_PROPS}
+                autoComplete="url"
+                inputMode="url"
                 id="profile-link"
                 value={link}
                 onChange={(event) => setLink(event.target.value.slice(0, 120))}
@@ -204,6 +218,8 @@ export function EditProfileDialog({ onClose }: { onClose: () => void }) {
             </Field>
             <Field id="profile-location" label="lugar" error={errors.location}>
               <input
+                {...WORDS_INPUT_PROPS}
+                autoComplete="on"
                 id="profile-location"
                 value={location}
                 onChange={(event) => setLocation(event.target.value.slice(0, 60))}

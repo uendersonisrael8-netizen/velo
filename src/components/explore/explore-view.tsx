@@ -11,6 +11,7 @@ import { useApp } from "@/components/providers/app-provider";
 import { Avatar } from "@/components/ui/avatar";
 import { EmptyState } from "@/components/ui/empty-state";
 import type { Post, Profile } from "@/lib/types";
+import { SEARCH_INPUT_PROPS } from "@/lib/input-suggestions";
 import { cn, normalizeTag, pluralize } from "@/lib/utils";
 
 type Filter = "all" | "video" | "image";
@@ -124,6 +125,8 @@ function ExploreContent() {
                 strokeWidth={1.6}
               />
               <input
+                {...SEARCH_INPUT_PROPS}
+                autoComplete="on"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Tags, pessoas, lugares…"

@@ -34,6 +34,7 @@ import {
   readImageAsDataURL,
   validateImageFile,
 } from "@/lib/media";
+import { SENTENCE_INPUT_PROPS } from "@/lib/input-suggestions";
 import { cn, createId } from "@/lib/utils";
 
 type ChatStatus = "loading" | "ready" | "offline";
@@ -842,6 +843,8 @@ export function ChatView() {
               )}
             </button>
             <textarea
+              {...SENTENCE_INPUT_PROPS}
+              autoComplete="on"
               ref={textareaRef}
               value={input}
               onChange={(event) => setInput(event.target.value)}

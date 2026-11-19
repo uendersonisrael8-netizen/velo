@@ -8,6 +8,7 @@ import { useToast } from "@/components/providers/toast-provider";
 import { Avatar } from "@/components/ui/avatar";
 import { Dialog } from "@/components/ui/dialog";
 import type { Comment, Post } from "@/lib/types";
+import { SENTENCE_INPUT_PROPS } from "@/lib/input-suggestions";
 import { commentSchema } from "@/lib/validation";
 import { cn, formatCompact, timeAgo } from "@/lib/utils";
 
@@ -201,6 +202,8 @@ export function CommentsPanel({
           >
             <Avatar name={user.displayName} src={user.avatarUrl} size={28} />
             <input
+              {...SENTENCE_INPUT_PROPS}
+              autoComplete="on"
               value={body}
               onChange={(event) => setBody(event.target.value.slice(0, 500))}
               placeholder="Escreva um comentário…"

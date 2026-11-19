@@ -23,6 +23,7 @@ import { CommentsPanel } from "@/components/feed/comments-panel";
 import { PostLightbox } from "@/components/feed/post-lightbox";
 import { useApp } from "@/components/providers/app-provider";
 import { useDirectUnread } from "@/components/providers/direct-provider";
+import { SEARCH_INPUT_PROPS } from "@/lib/input-suggestions";
 import { Avatar } from "@/components/ui/avatar";
 import { EmptyState } from "@/components/ui/empty-state";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -295,6 +296,8 @@ function DirectContent() {
           <div className="flex items-center gap-2 rounded-full border border-line bg-surface px-3 transition focus-within:border-accent/60">
             <Search className="size-4 shrink-0 text-muted" strokeWidth={1.7} />
             <input
+              {...SEARCH_INPUT_PROPS}
+              autoComplete="on"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Buscar conversa"

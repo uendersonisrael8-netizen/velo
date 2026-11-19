@@ -8,6 +8,7 @@ import { Avatar } from "@/components/ui/avatar";
 import { Dialog } from "@/components/ui/dialog";
 import { StoryViewer } from "@/components/feed/story-viewer";
 import { getVideoDuration, validateMediaFile } from "@/lib/media";
+import { SENTENCE_INPUT_PROPS } from "@/lib/input-suggestions";
 import type { MediaType } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { getErrorMessage as messageOf } from "@/lib/validation";
@@ -359,6 +360,8 @@ function StoryComposer({
               <span className="tabular-nums text-muted/60">{caption.length}/120</span>
             </label>
             <input
+              {...SENTENCE_INPUT_PROPS}
+              autoComplete="on"
               id="story-caption"
               value={caption}
               onChange={(event) => setCaption(event.target.value.slice(0, 120))}

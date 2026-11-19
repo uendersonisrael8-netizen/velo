@@ -7,6 +7,7 @@ import { ArrowUpRight, Search } from "lucide-react";
 import { useApp } from "@/components/providers/app-provider";
 import { Avatar } from "@/components/ui/avatar";
 import type { Profile } from "@/lib/types";
+import { SEARCH_INPUT_PROPS } from "@/lib/input-suggestions";
 import { cn, pluralize } from "@/lib/utils";
 
 export function RightRail() {
@@ -54,6 +55,8 @@ export function RightRail() {
           strokeWidth={1.6}
         />
         <input
+          {...SEARCH_INPUT_PROPS}
+          autoComplete="on"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Buscar pessoas, tags, lugares"

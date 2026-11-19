@@ -9,6 +9,7 @@ import { useToast } from "@/components/providers/toast-provider";
 import { Avatar } from "@/components/ui/avatar";
 import { Dialog } from "@/components/ui/dialog";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { SEARCH_INPUT_PROPS } from "@/lib/input-suggestions";
 import {
   fetchDirectConversations,
   searchDirectProfiles,
@@ -225,6 +226,8 @@ export function SharePostDialog({
             <div className="mt-4 flex items-center gap-2 rounded-[14px] border border-line bg-surface px-3">
               <Search className="size-4 text-muted" strokeWidth={1.7} />
               <input
+                {...SEARCH_INPUT_PROPS}
+                autoComplete="on"
                 value={query}
                 onChange={(event) => {
                   const value = event.target.value;

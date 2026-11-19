@@ -6,6 +6,7 @@ import { useApp } from "@/components/providers/app-provider";
 import { Avatar } from "@/components/ui/avatar";
 import { Dialog } from "@/components/ui/dialog";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { SEARCH_INPUT_PROPS } from "@/lib/input-suggestions";
 import {
   searchDirectProfiles,
   startDirectConversation,
@@ -104,6 +105,8 @@ export function NewChatDialog({
         <div className="mt-5 flex items-center gap-2 rounded-[14px] border border-line bg-surface px-3">
           <Search className="size-4 text-muted" strokeWidth={1.7} />
           <input
+            {...SEARCH_INPUT_PROPS}
+            autoComplete="on"
             autoFocus
             value={query}
             onChange={(event) => {

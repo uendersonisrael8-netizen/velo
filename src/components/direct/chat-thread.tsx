@@ -16,6 +16,7 @@ import { useDirectUnread } from "@/components/providers/direct-provider";
 import { useToast } from "@/components/providers/toast-provider";
 import { Avatar } from "@/components/ui/avatar";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { SENTENCE_INPUT_PROPS } from "@/lib/input-suggestions";
 import {
   fetchDirectMessages,
   markDirectRead,
@@ -358,6 +359,8 @@ export function ChatThread({
       >
         <div className="flex items-end gap-2 rounded-[22px] border border-line bg-surface px-3 py-1.5 transition focus-within:border-accent/60">
           <textarea
+            {...SENTENCE_INPUT_PROPS}
+            autoComplete="on"
             value={body}
             onChange={(event) => setBody(event.target.value)}
             onKeyDown={handleKeyDown}
