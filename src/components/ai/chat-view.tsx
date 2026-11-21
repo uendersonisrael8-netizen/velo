@@ -12,6 +12,8 @@ import {
 import {
   ArrowUp,
   CloudOff,
+  ExternalLink,
+  Globe,
   ImagePlus,
   Loader2,
   RefreshCw,
@@ -64,6 +66,8 @@ type ChatResponse = {
   conversationId?: string | null;
   storage?: "local" | "server";
   error?: string;
+  searched?: boolean;
+  sources?: Array<{ title: string; url: string }>;
 };
 
 type RewriteResponse = {
@@ -79,7 +83,7 @@ const SUGGESTIONS = [
 ];
 
 const HISTORY_STORAGE_PREFIX = "velo-ia:history:";
-const HISTORY_CONTEXT_LIMIT = 10;
+const HISTORY_CONTEXT_LIMIT = 30;
 const HISTORY_STORAGE_LIMIT = 40;
 
 function readLocalHistory(storageKey: string): VeloIaMessage[] {
@@ -235,8 +239,34 @@ function MessageBubble({ message }: { message: VeloIaMessage }) {
               )}
             />
           ) : null}
+          {message.searched ? (
+            <div className="mb-2 flex items-center gap-1.5 text-[11px] text-muted">
+              <Globe className="size-3" strokeWidth={1.8} />
+              <span>Pesquisou na web</span>
+            </div>
+          ) : null}
           {message.content ? (
             <p className="whitespace-pre-wrap break-words">{message.content}</p>
+          ) : null}
+          {message.sources && message.sources.length > 0 ? (
+            <div className="mt-2 border-t border-line/50 pt-2">
+              <p className="mb-1 text-[10.5px] text-muted">Fontes:</p>
+              <ul className="space-y-1">
+                {message.sources.map((source, index) => (
+                  <li key={index} className="text-[10.5px]">
+                    <a
+                      href={source.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-accent hover:underline"
+                    >
+                      <ExternalLink className="size-2.5" strokeWidth={2} />
+                      <span className="truncate">{source.title || source.url}</span>
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
           ) : null}
         </div>
         {time ? (
@@ -297,7 +327,7 @@ function OfflineNotice({
         </p>
         <p className="mt-1 text-[12px] leading-relaxed text-muted">
           {reason === "not_configured"
-            ? "O servidor de IA ainda não foi configurado. Adicione GROQ_API_KEY na Vercel (ou VELO_IA_API_URL e VELO_IA_API_KEY) para ativar a velo ia."
+            ? "O servidor de IA ainda não foi configurado. Adicione GEMINI_API_KEY (ou GROQ_API_KEY) na Vercel (ou VELO_IA_API_URL e VELO_IA_API_KEY) para ativar a velo ia."
             : "Pode ser uma oscilação momentânea. Tente de novo em instantes — as mensagens já enviadas continuam salvas neste navegador."}
         </p>
       </div>
@@ -581,6 +611,8 @@ export function ChatView() {
         role: "assistant",
         content: data.reply as string,
         createdAt: new Date().toISOString(),
+        searched: Boolean(data.searched),
+        sources: Array.isArray(data.sources) ? data.sources : undefined,
       };
       applyMessages(
         [...messagesRef.current, assistantMessage],
@@ -714,11 +746,11 @@ export function ChatView() {
             type="button"
             onClick={() => setConfirmClear(true)}
             disabled={messages.length === 0 || clearing}
-            aria-label="Limpar conversa"
-            title="Limpar conversa"
+            aria-label="Nova conversa"
+            title="Nova conversa"
             className="flex size-9 items-center justify-center rounded-full border border-line text-muted transition hover:border-line-strong hover:text-ink disabled:cursor-not-allowed disabled:opacity-35"
           >
-            <Trash2 className="size-4" strokeWidth={1.7} />
+            <RefreshCw className="size-4" strokeWidth={1.7} />
           </button>
         </div>
       </header>
@@ -872,6 +904,10 @@ export function ChatView() {
             <textarea
               {...SENTENCE_INPUT_PROPS}
               autoComplete="on"
+              spellCheck={true}
+              autoCapitalize="sentences"
+              inputMode="text"
+              enterKeyHint="send"
               ref={textareaRef}
               value={input}
               onChange={(event) => setInput(event.target.value)}
@@ -929,7 +965,7 @@ export function ChatView() {
           className="fixed inset-0 z-[95] flex items-center justify-center bg-black/45 px-5 backdrop-blur-sm"
           role="dialog"
           aria-modal="true"
-          aria-labelledby="velo-ia-clear-title"
+          aria-labelledby="velo-ia-new-conversation-title"
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) setConfirmClear(false);
           }}
@@ -937,14 +973,14 @@ export function ChatView() {
           <div className="w-full max-w-[360px] rounded-[24px] border border-line bg-paper p-6 shadow-2xl">
             <p className="eyebrow text-[8px] text-muted">velo ia</p>
             <h2
-              id="velo-ia-clear-title"
+              id="velo-ia-new-conversation-title"
               className="mt-2 font-editorial text-[28px] leading-[0.95] tracking-[-0.03em] text-ink"
             >
-              limpar a conversa?
+              nova conversa?
             </h2>
             <p className="mt-3 text-[12.5px] leading-relaxed text-muted">
-              A velo ia esquece o contexto recente e a conversa recomeça do zero.
-              Essa ação não pode ser desfeita.
+              A velo ia esquece o contexto recente e a conversa recomeça do
+              zero. Essa ação não pode ser desfeita.
             </p>
             <div className="mt-5 flex gap-2">
               <button
@@ -961,7 +997,7 @@ export function ChatView() {
                 disabled={clearing}
                 className="h-10 flex-1 rounded-full bg-accent text-[12px] font-semibold text-[#0a0a0a] transition hover:bg-ink hover:text-paper disabled:opacity-60"
               >
-                {clearing ? "limpando…" : "limpar"}
+                {clearing ? "iniciando…" : "nova conversa"}
               </button>
             </div>
           </div>

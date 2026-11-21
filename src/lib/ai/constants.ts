@@ -14,6 +14,10 @@ export type VeloIaMessage = {
   createdAt?: string;
   /** Data URL da imagem enviada. Não é persistida no localStorage. */
   image?: string;
+  /** Indica se a resposta consultou a web em tempo real. */
+  searched?: boolean;
+  /** Fontes pesquisadas na web. */
+  sources?: Array<{ title: string; url: string }>;
 };
 
 // Limites do anexo de imagem no chat. O cliente comprime para ~2 MB; o
