@@ -139,6 +139,19 @@ export const aiRewriteSchema = z.object({
   ),
 });
 
+// Modo de voz: o navegador grava o áudio (WebM/Ogg/MP4) e manda em base64.
+// O limite de tamanho é conferido de novo no servidor, depois do decode.
+export const aiTranscribeSchema = z.object({
+  audio: z
+    .string()
+    .min(1, "Grave um áudio antes de enviar.")
+    .max(6_000_000, "O áudio é muito longo."),
+  mimeType: z
+    .string()
+    .max(64, "Tipo de áudio inválido.")
+    .optional(),
+});
+
 export type AiChatValues = z.infer<typeof aiChatSchema>;
 
 export const uploadSchema = z.object({

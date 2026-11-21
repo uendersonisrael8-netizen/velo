@@ -369,6 +369,61 @@ textarea::placeholder {
   animation: shimmer 1.6s infinite;
 }
 
+/* Modo de voz: anéis que irradiam do orbe enquanto a velo ia escuta. */
+.voice-ripple {
+  animation: voice-ripple 2400ms cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+.voice-ripple-late {
+  animation-delay: 1200ms;
+}
+
+@keyframes voice-ripple {
+  0% {
+    transform: scale(0.78);
+    opacity: 0.5;
+  }
+  75% {
+    transform: scale(1.32);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.32);
+    opacity: 0;
+  }
+}
+
+/* Modo de voz: barras que acompanham a fala da velo ia. */
+.voice-bar {
+  transform-origin: center;
+  animation: voice-bar 860ms ease-in-out infinite alternate;
+}
+
+.voice-bar:nth-child(2) {
+  animation-delay: 110ms;
+}
+
+.voice-bar:nth-child(3) {
+  animation-delay: 220ms;
+}
+
+.voice-bar:nth-child(4) {
+  animation-delay: 330ms;
+}
+
+.voice-bar:nth-child(5) {
+  animation-delay: 440ms;
+}
+
+@keyframes voice-bar {
+  from {
+    transform: scaleY(0.28);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
 .story-progress-track {
   background: rgba(255, 255, 255, 0.28);
 }

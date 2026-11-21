@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Compass, Home, MessageCircle, Plus, Sparkles, UserRound } from "lucide-react";
+import { Compass, Home, MessageCircle, Phone, Plus, Sparkles, UserRound } from "lucide-react";
 import { useDirectUnread } from "@/components/providers/direct-provider";
 import { cn } from "@/lib/utils";
 
@@ -12,6 +12,7 @@ const items = [
   { href: "/upload", label: "Publicar", icon: Plus, featured: true },
   { href: "/direct", label: "Direct", icon: MessageCircle },
   { href: "/chat", label: "velo ia", icon: Sparkles },
+  { href: "/voice-call", label: "Voz ao vivo", icon: Phone },
   { href: "/profile", label: "Perfil", icon: UserRound },
 ];
 
